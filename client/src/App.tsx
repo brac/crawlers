@@ -4,10 +4,10 @@ import {
   connect,
   descend,
   flee,
+  invokeUseItem,
   joinNewSession,
   move,
   onSnapshot,
-  useItem,
 } from "./api/signalr";
 import type { GameStateSnapshotDto } from "./api/types";
 import { GameMode, MoveDirection, TileType } from "./api/types";
@@ -117,7 +117,7 @@ export default function App() {
         const item = consumables[idx];
         if (!item) return;
         e.preventDefault();
-        void useItem(c, item.id).catch(() => {});
+        void invokeUseItem(c, item.id).catch(() => {});
         return;
       }
 

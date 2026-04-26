@@ -42,7 +42,9 @@ export function flee(connection: HubConnection): Promise<void> {
   return connection.invoke("Flee");
 }
 
-export function useItem(
+// Renamed from `useItem` so eslint's react-hooks/rules-of-hooks doesn't
+// mistake this SignalR helper for a React hook.
+export function invokeUseItem(
   connection: HubConnection,
   itemId: string,
 ): Promise<void> {
