@@ -1,0 +1,342 @@
+.app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #0b0b0b;
+  color: #ddd;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.dungeon-view {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.dungeon-view canvas {
+  display: block;
+}
+
+.hud {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+  background: rgba(10, 10, 10, 0.78);
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 12px 14px;
+  min-width: 200px;
+  font-size: 13px;
+  line-height: 1.5;
+  backdrop-filter: blur(4px);
+}
+
+.hud-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hud-label {
+  color: #888;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  align-self: center;
+}
+
+.hud-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.hud-mode-combat {
+  color: #e14b4b;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.hud-mode-dead {
+  color: #888;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.combat-banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  background: rgba(60, 12, 12, 0.92);
+  border: 1px solid #e14b4b;
+  border-radius: 6px;
+  padding: 10px 16px;
+  color: #ffd9d9;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  box-shadow: 0 0 18px rgba(225, 75, 75, 0.35);
+}
+
+.combat-banner kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 0 2px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid #e14b4b;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.combat-banner-dead {
+  background: rgba(15, 15, 15, 0.95);
+  border-color: #555;
+  color: #ccc;
+  box-shadow: 0 0 18px rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hint-banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  background: rgba(20, 30, 50, 0.92);
+  border: 1px solid #4488cc;
+  border-radius: 6px;
+  padding: 8px 14px;
+  color: #c9def0;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.hint-banner kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 0 2px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid #4488cc;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.restart-button {
+  appearance: none;
+  border: 1px solid #777;
+  background: rgba(50, 50, 50, 0.8);
+  color: #f2f2f2;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.restart-button:hover {
+  background: rgba(70, 70, 70, 0.9);
+  border-color: #aaa;
+}
+
+.hp-bar {
+  position: relative;
+  display: inline-block;
+  width: 130px;
+  height: 14px;
+  background: rgba(40, 40, 40, 0.85);
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.hp-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(180deg, #5db569 0%, #3a8a47 100%);
+  transition: width 180ms ease-out;
+}
+
+.hp-bar-fill.hp-low {
+  background: linear-gradient(180deg, #d36a5e 0%, #a13b30 100%);
+}
+
+.hp-bar-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.combat-log {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: 10;
+  width: 360px;
+  max-height: 280px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(10, 10, 10, 0.85);
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  font-size: 13px;
+  backdrop-filter: blur(4px);
+}
+
+.combat-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid #2a2a2a;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: #888;
+}
+
+.combat-outcome {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.combat-outcome.outcome-win {
+  background: rgba(58, 138, 71, 0.25);
+  color: #8de29a;
+}
+
+.combat-outcome.outcome-flee {
+  background: rgba(180, 150, 50, 0.25);
+  color: #f1c87a;
+}
+
+.combat-outcome.outcome-death {
+  background: rgba(140, 30, 30, 0.4);
+  color: #ff9b9b;
+}
+
+.combat-log-scroller {
+  overflow-y: auto;
+  padding: 8px 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.combat-round {
+  margin-bottom: 8px;
+}
+
+.combat-round-label {
+  color: #6a6a6a;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 2px;
+}
+
+.combat-event {
+  color: #d4d4d4;
+  line-height: 1.45;
+  margin-bottom: 1px;
+}
+
+.inventory {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 10;
+  width: 240px;
+  background: rgba(10, 10, 10, 0.85);
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  font-size: 12px;
+  backdrop-filter: blur(4px);
+}
+
+.inventory-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid #2a2a2a;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: #888;
+}
+
+.inventory-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.inventory-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 6px 12px;
+}
+
+.inventory-item.passive {
+  opacity: 0.78;
+}
+
+.inventory-key {
+  flex: 0 0 22px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(40, 40, 40, 0.8);
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #777;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.inventory-key.active {
+  background: rgba(242, 193, 78, 0.22);
+  border-color: #f2c14e;
+  color: #ffe9a8;
+}
+
+.inventory-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.inventory-name {
+  color: #d4d4d4;
+  font-weight: 500;
+}
+
+.inventory-desc {
+  color: #888;
+  font-size: 11px;
+  line-height: 1.35;
+}

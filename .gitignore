@@ -1,0 +1,23 @@
+# Local secrets / runtime config — never commit
+.env
+.env.local
+.env.*.local
+
+# Local Claude Code state
+.claude/
+
+# .NET build outputs
+**/bin/
+**/obj/
+
+# IDE / editor
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

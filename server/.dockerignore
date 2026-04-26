@@ -1,0 +1,28 @@
+# Build outputs — never copy these into the image; the build stage produces
+# fresh ones inside the container.
+**/bin
+**/obj
+
+# IDE / editor state
+**/.vs
+**/.idea
+**/.vscode
+**/*.user
+**/*.suo
+**/*.swp
+
+# OS
+**/.DS_Store
+**/Thumbs.db
+
+# Source control
+**/.git
+**/.gitignore
+**/.gitattributes
+
+# Docker artifacts (no need to send the Dockerfile back into the build context)
+Dockerfile
+.dockerignore
+
+# Local launch settings — irrelevant to a container image
+**/Properties/launchSettings.json

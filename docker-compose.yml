@@ -1,0 +1,56 @@
+# Crawlers — local infrastructure stack.
+#
+# Two services on a private compose network:
+#   - postgres (data persisted in a named volume)
+#   - server  (built from ./server/Dockerfile, depends on postgres healthy)
+#
+# All environment-specific values are env-driven. Defaults are inlined for
+# zero-config local boot; override via .env or shell environment for staging /
+# production.
+#
+# Quick start:
+#   cp .env.example .env   # optional; defaults work
+#   docker compose up --build
+#
+# SignalR runs on plain HTTP inside the container; Docker port mapping forwards
+# the WebSocket upgrade transparently. Put a TLS-terminating proxy in front
+# for production.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: crawlers-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-crawlers}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-crawlers}
+      POSTGRES_DB: ${POSTGRES_DB:-crawlers}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-crawlers} -d ${POSTGRES_DB:-crawlers}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: crawlers-server
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-crawlers};Username=${POSTGRES_USER:-crawlers};Password=${POSTGRES_PASSWORD:-crawlers}"
+      Cors__AllowedOrigins: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:3000}
+    ports:
+      - "${SERVER_HOST_PORT:-5238}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
