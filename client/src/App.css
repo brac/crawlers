@@ -340,3 +340,141 @@
   font-size: 11px;
   line-height: 1.35;
 }
+
+/* Mobile / touch controls — hidden on devices with a precise pointer (mouse). */
+.mobile-controls {
+  display: none;
+}
+
+.inventory-item.tappable {
+  cursor: pointer;
+}
+
+@media (pointer: coarse) {
+  .mobile-controls {
+    display: block;
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 20;
+  }
+
+  /* Tighten desktop overlays for narrow phone screens. */
+  .hud {
+    top: 8px;
+    right: 8px;
+    min-width: 0;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .inventory {
+    top: 8px;
+    left: 8px;
+    bottom: auto;
+    right: auto;
+    width: 200px;
+    font-size: 11px;
+  }
+
+  .combat-log {
+    display: none;
+  }
+
+  .dpad {
+    pointer-events: auto;
+    position: absolute;
+    bottom: 24px;
+    left: 24px;
+    width: 168px;
+    height: 168px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 4px;
+  }
+
+  .dpad-btn {
+    appearance: none;
+    background: rgba(20, 20, 20, 0.7);
+    border: 1px solid #444;
+    color: #ddd;
+    font-size: 22px;
+    line-height: 1;
+    border-radius: 8px;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  .dpad-btn:active {
+    background: rgba(70, 70, 70, 0.9);
+    border-color: #888;
+  }
+
+  .dpad-up {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .dpad-left {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .dpad-right {
+    grid-column: 3;
+    grid-row: 2;
+  }
+  .dpad-down {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .mobile-actions {
+    pointer-events: auto;
+    position: absolute;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .mobile-action {
+    appearance: none;
+    background: rgba(20, 20, 20, 0.85);
+    border: 1px solid #555;
+    color: #f2f2f2;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 12px 18px;
+    border-radius: 6px;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    min-width: 110px;
+  }
+
+  .mobile-action:active {
+    background: rgba(70, 70, 70, 0.95);
+  }
+
+  .mobile-action-flee {
+    border-color: #e1a04b;
+    color: #ffe2b8;
+  }
+
+  .mobile-action-descend {
+    border-color: #4488cc;
+    color: #c9def0;
+  }
+
+  .inventory-item.tappable:active {
+    background: rgba(70, 70, 70, 0.5);
+  }
+}
+

@@ -23,7 +23,9 @@ Build order progress (see "Project Build Order" below for full list):
 - [x] **Step 8 — Items + inventory.** `Item` extended with `Effect`/`EffectValue`. `ItemTemplates` (Healing Draught, Bone Charm). `ItemEffects` exposes passive bonuses; `PlayerAttack` applies `+atk` from inventory. Loot drops on `PlayerWon` at corpse tile. `MovementService` picks up `Type=Item` entities. `Hub.UseItem(itemId)` works in both Combat (queued via `CombatRunner.RequestUseItem`, replaces the round's attack) and Exploration (immediate via `ItemUseHelper.Apply`, broadcast). Client renders teal squares for floor items, inventory panel with hotkeys 1-9.
 - [x] **Step 9 — Persistence.** EF Core 9 + Npgsql provider. `CrawlersDbContext` + `RunHistoryEntry` + initial migration applied at startup via `db.Database.MigrateAsync()`. `IRunHistoryService` with `RunHistoryService` (Postgres) and `NullRunHistoryService` (no-op fallback when `ConnectionStrings:DefaultConnection` is empty). `CombatRunner` records death rows after the final broadcast: id/player/session/seed/cause-of-death/kill count/HP/inventory count/timestamps. Verified: row written, schema correct.
 - [x] **Step 10 — Polish + balancing.** Restart button on the death banner (no refresh required; `JoinNewSession` cleans up the prior session in-memory). Loot drop rate balanced (40% nothing / 40% Heal / 20% Charm). Three enemy archetypes: Husk (baseline), Rasper (fast/fragile), Hulk (slow/tough), with distinct colors + sizes on the renderer. Multi-floor descent: stand on stairs-down + press `>` to generate the next floor with deterministic seed `InitialSeed + (floor-1)`, +1 enemy per floor (cap 10), inventory + HP carry over. 161 tests passing.
-- [ ] Step 10 — Polish + balancing
+
+- [x] **Visual polish phase 1.** All eight steps in `VISUAL_POLISH.md` shipped: 0x72 Dungeon Tileset II atlas + JSON manifest at `client/public/assets/dungeon/`, Pixi `Assets` preload with loading state, sprite-based tile rendering at native 16 px scaled 2× (mobile) or 3× (desktop) with integer scale picked from viewport, `AnimatedSprite` characters with idle-loop "breathing" + run cycle during 250 ms ease-out tweens, sprite-flip facing on horizontal moves, camera follow on the tweened player position. Mobile D-pad + Flee/Descend buttons gated by `@media (pointer: coarse)`, tappable inventory rows.
+- [x] **Combat juice (server-side payload + client anims).** `CombatEvent` carries structured `Kind`/`ActorId`/`TargetId`/`Damage`; renderer plays per-event animations during combat: lunge + red flash on Hit, heavier flash + camera shake on Crit, sidestep dodge on Miss, jitter on Fumble, green pulse on Heal. Killing-blow Hit animates before the dying enemy sprite is destroyed. 161 tests passing.
 
 ---
 
@@ -48,10 +50,11 @@ crawlers/
 
 crawlers/client/                    ← Step 4: React + TS + Pixi.js v8 + SignalR client
 ├── vite.config.ts                  (host: true; proxy /game → localhost:5238 with ws:true)
+├── public/assets/dungeon/          (0x72 Dungeon Tileset II + assets.json manifest)
 └── src/
     ├── api/                        (signalr.ts, types.ts — TS mirrors of server contracts)
-    ├── game/                       (DungeonRenderer, DungeonView, tileColors)
-    ├── ui/                         (Hud)
+    ├── game/                       (DungeonRenderer, DungeonView, assets.ts, tileColors)
+    ├── ui/                         (Hud, CombatLog, Inventory, MobileControls)
     └── App.tsx                     (connect → join → keydown WASD → server)
 
 crawlers/                           ← Step 6.5: container infrastructure
@@ -81,6 +84,13 @@ Future projects: `Crawlers.Persistence` (Postgres, Step 9). Gameplay logic may b
 - ASCII is the only server-side debug renderer (`FloorAsciiRenderer`). It belongs to dev/test tooling.
 - No richer preview formats (SVG, Canvas, sprites) on the server side. Real visual rendering is the client's job and lives entirely in Step 4 with React + Pixi.js.
 - The server never emits anything intended for human eyes other than logs and ASCII for tests/REPL.
+
+### Visual Polish Phase 1 (assets + animations)
+- Tileset: 0x72 Dungeon Tileset II v1.7 (single master atlas at `client/public/assets/dungeon/0x72_DungeonTilesetII_v1.7/`).
+- All sprite coordinates are declared in `client/public/assets/dungeon/assets.json` — never hardcode atlas frame coords in TS. Schema and decisions live in `VISUAL_POLISH.md`.
+- Native tile size is **16 px**. The renderer applies an integer scale (2× on phones, 3× on desktops) to `worldContainer`, picked from the smaller viewport dimension. Camera tracks the tweened player position, never the snapshot's tile coordinate, so movement glides.
+- Animations: `AnimatedSprite` for characters (player + enemies). Idle plays a slow loop ("breathing"); run cycle plays during a 250 ms ease-out positional tween between tiles. Items remain `Sprite` (no anim).
+- Combat events are structured: `CombatEvent { ActorId, TargetId, Kind, Damage, Description }`. The renderer ingests round events via a running watermark and queues per-event animations (Hit/Crit/Miss/Fumble/Heal). Killing-blow sprites are deferred from destruction until their pending anims drain.
 
 ---
 
@@ -318,9 +328,15 @@ These are the core shapes (implemented in `Crawlers.Domain`). Implementation det
 ### CombatLog
 - session_id
 - floor_id
-- rounds [] (each round is an ordered list of events)
+- rounds [] (each round is an ordered list of `CombatEvent`s)
 - outcome (CombatOutcome: in_progress | player_won | player_fled | enemy_fled | player_died)
 - started_at, ended_at
+
+### CombatEvent
+- actor_id, target_id (Guid? — present for combat actions, null for narrative)
+- kind (CombatEventKind: narrative | hit | crit | miss | fumble | heal | death | loot | flee)
+- damage (int? — present on hit/crit)
+- description (human-readable log line)
 
 ### RunHistory
 - player_id
@@ -364,6 +380,6 @@ Do not skip steps or reorder. Each step depends on the previous.
 
 - **View**: Top-down
 - **Stat names**: STR/DEX/CON (kept as-is)
-- **Tile size**: 200–300 px (medium-small)
+- **Tile size**: 16 px native (0x72 atlas), rendered at 2×–3× via `worldContainer.scale`
 - **Sight radius**: Player 5 tiles, enemies 4 tiles
 - **Class system**: Classless at start; classes added later

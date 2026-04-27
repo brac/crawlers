@@ -7,13 +7,15 @@ namespace Crawlers.Tests.Generation;
 
 public class EntityPlacerTests
 {
-    private static Floor MakeFloor(int seed) =>
+    // Floor 2 keeps the random Husk/Rasper/Hulk pool. Tests in this class
+    // exercise that path; the floor-1 boss layout has its own tests below.
+    private static Floor MakeFloor(int seed, int floorNumber = 2) =>
         new BspFloorGenerator().Generate(new GenerationConfig
         {
             Width = 60,
             Height = 30,
             Seed = seed,
-            FloorNumber = 1
+            FloorNumber = floorNumber
         });
 
     [Fact]
@@ -87,11 +89,56 @@ public class EntityPlacerTests
         Assert.Equal(positions1, positions2);
     }
 
-    private static Position? FindStairsUp(Floor floor)
+    [Fact]
+    public void FloorOne_places_big_slug_on_stairs_down()
+    {
+        var floor = MakeFloor(seed: 7, floorNumber: 1);
+        new EntityPlacer().Place(floor, new Random(7), enemyCount: 4);
+
+        var stairsDown = FindTile(floor, TileType.StairsDown);
+        Assert.NotNull(stairsDown);
+
+        var bossOnStairs = floor.Entities.SingleOrDefault(e =>
+            e.Type == EntityType.Enemy &&
+            e.Position.Equals(stairsDown!.Value) &&
+            e.Name == "Big Slug");
+        Assert.NotNull(bossOnStairs);
+        Assert.Equal(22, bossOnStairs!.Stats!.MaxHp);
+    }
+
+    [Fact]
+    public void FloorOne_other_enemies_are_all_tiny_slugs()
+    {
+        var floor = MakeFloor(seed: 11, floorNumber: 1);
+        new EntityPlacer().Place(floor, new Random(11), enemyCount: 4);
+
+        var stairsDown = FindTile(floor, TileType.StairsDown);
+        var nonBoss = floor.Entities
+            .Where(e => e.Type == EntityType.Enemy)
+            .Where(e => stairsDown is null || !e.Position.Equals(stairsDown.Value))
+            .ToList();
+
+        Assert.NotEmpty(nonBoss);
+        Assert.All(nonBoss, e => Assert.Equal("Slug", e.Name));
+    }
+
+    [Fact]
+    public void FloorOne_enemy_count_is_requested_count_plus_boss()
+    {
+        var floor = MakeFloor(seed: 3, floorNumber: 1);
+        new EntityPlacer().Place(floor, new Random(3), enemyCount: 4);
+
+        // 4 TinySlugs + 1 BigSlug guard
+        Assert.Equal(5, floor.Entities.Count(e => e.Type == EntityType.Enemy));
+    }
+
+    private static Position? FindStairsUp(Floor floor) => FindTile(floor, TileType.StairsUp);
+
+    private static Position? FindTile(Floor floor, TileType type)
     {
         for (int y = 0; y < floor.Height; y++)
             for (int x = 0; x < floor.Width; x++)
-                if (floor.TileGrid[x, y].Type == TileType.StairsUp)
+                if (floor.TileGrid[x, y].Type == type)
                     return new Position(x, y);
         return null;
     }

@@ -37,9 +37,12 @@ public static class FieldOfView
         foreach (var p in BresenhamLine(from, to))
         {
             fog[p.X, p.Y] = VisibilityState.Visible;
-            if (floor.TileGrid[p.X, p.Y].Type == TileType.Wall) return;
+            if (BlocksLos(floor.TileGrid[p.X, p.Y].Type)) return;
         }
     }
+
+    private static bool BlocksLos(TileType t) =>
+        t == TileType.Wall || t == TileType.Door || t == TileType.LockedDoor;
 
     public static IEnumerable<Position> BresenhamLine(Position from, Position to)
     {

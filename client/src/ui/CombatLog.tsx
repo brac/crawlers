@@ -51,7 +51,7 @@ export function CombatLog({ log }: CombatLogProps) {
             )}
             {round.events.map((evt, i) => (
               <div key={i} className="combat-event">
-                {evt}
+                {evt.description}
               </div>
             ))}
           </div>

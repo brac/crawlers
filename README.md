@@ -12,9 +12,10 @@ The game and its lore are original. See [`CLAUDE.md`](./CLAUDE.md) for the desig
 | Frontend | React 19 + TypeScript, Pixi.js v8, Vite |
 | Realtime | SignalR (HTTP/WebSocket negotiation) |
 | Procedural generation | Server-side BSP partitioning, deterministic per seed |
-| Combat | Auto-battler, D&D-adjacent rolls (initiative, d20 vs AC, crits, AoO on flee) |
+| Combat | Auto-battler, D&D-adjacent rolls (initiative, d20 vs AC, crits, AoO on flee). Structured per-event payload drives client animations. |
 | Persistence | EF Core + Npgsql, migrations applied at startup |
 | Container | Multi-stage Dockerfile, compose with Postgres |
+| Art | [0x72 Dungeon Tileset II](https://0x72.itch.io/dungeontileset-ii) (16 px tiles, rendered 2×/3×), JSON-driven sprite manifest |
 
 ## Quick start (recommended: docker compose)
 
@@ -52,6 +53,8 @@ cd client && npm install && npm run dev
 | `1`–`9` | Use the Nth consumable in your inventory (Combat: replaces attack for the round; Exploration: immediate) |
 | `>` or `.` | Descend stairs (must be standing on stairs-down) |
 
+On touch devices a D-pad + Flee / Descend buttons appear automatically (CSS-gated by `@media (pointer: coarse)`), and consumable inventory rows are tappable.
+
 ## LAN play
 
 Vite binds on `0.0.0.0` (`server.host: true` in `vite.config.ts`). On the same Wi-Fi, hit `http://<your-mac-ip>:5173` from another device. Your machine's firewall may need to allow incoming connections to `node` for the Vite port.
@@ -69,6 +72,7 @@ dotnet test server/Crawlers.slnx
 ```
 crawlers/
 ├── CLAUDE.md                          ← project bible: design, architecture, build order
+├── VISUAL_POLISH.md                   ← phase-1 art plan: tileset, sprites, animations
 ├── docker-compose.yml
 ├── .env.example
 ├── server/
@@ -81,10 +85,11 @@ crawlers/
 │   └── tests/Crawlers.Tests/          ← xUnit
 └── client/
     ├── vite.config.ts                 ← LAN bind + /game proxy
+    ├── public/assets/dungeon/         ← 0x72 atlas + assets.json manifest
     └── src/
         ├── api/                       ← TS contracts mirroring server DTOs
-        ├── game/                      ← Pixi renderer
-        ├── ui/                        ← HUD, combat log, inventory
+        ├── game/                      ← Pixi renderer + asset loader
+        ├── ui/                        ← HUD, combat log, inventory, mobile controls
         └── App.tsx                    ← connect → join → keydown
 ```
 
@@ -96,4 +101,4 @@ crawlers/
 
 ## Status
 
-All ten build-order steps are complete. See [`CLAUDE.md`](./CLAUDE.md) for the per-step rundown of what was built.
+All ten build-order steps from [`CLAUDE.md`](./CLAUDE.md) and Phase 1 of [`VISUAL_POLISH.md`](./VISUAL_POLISH.md) are complete: tile + character sprites from the 0x72 atlas, idle-loop "breathing", run-cycle during 250 ms ease-out tweens between tiles, direction facing via sprite flip, and per-event combat animations (lunge + red flash on hits, camera shake on crits, sidestep on misses, green pulse on heals).

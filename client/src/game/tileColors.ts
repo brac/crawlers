@@ -1,27 +1,9 @@
-import { TileType } from "../api/types";
+// Native source-pixel size of a tile in the 0x72 atlas. The renderer picks an
+// integer scale (2-3) at runtime based on viewport size — see DungeonRenderer.
+export const TILE_SIZE = 16;
+export const MAX_RENDER_SCALE = 3;
+export const MIN_RENDER_SCALE = 2;
+// Aim to show at least this many tiles along the shorter viewport dimension.
+export const MIN_TILES_VISIBLE = 11;
 
-export const TILE_SIZE = 20;
-
-export const TILE_COLORS: Record<TileType, number> = {
-  [TileType.Floor]: 0x4a3a2a,
-  [TileType.Wall]: 0x222222,
-  [TileType.Door]: 0x886633,
-  [TileType.StairsUp]: 0x4488cc,
-  [TileType.StairsDown]: 0xcc4444,
-};
-
-export const PLAYER_COLOR = 0xf2c14e;
-export const ENEMY_COLOR = 0xe14b4b;
-export const ITEM_COLOR = 0x6ec5b8;
 export const BACKGROUND_COLOR = 0x111111;
-
-// Per-archetype enemy appearance, keyed by EntityDto.name so adding new
-// archetypes server-side just needs an entry here. Falls back to ENEMY_COLOR.
-export const ENEMY_APPEARANCE: Record<
-  string,
-  { color: number; radiusFactor: number }
-> = {
-  Husk: { color: 0xe14b4b, radiusFactor: 0.4 },
-  Rasper: { color: 0xff8aa6, radiusFactor: 0.32 },
-  Hulk: { color: 0x8a2d2d, radiusFactor: 0.46 },
-};

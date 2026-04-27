@@ -11,14 +11,17 @@ import {
 } from "./api/signalr";
 import type { GameStateSnapshotDto } from "./api/types";
 import { GameMode, MoveDirection, TileType } from "./api/types";
+import { type AssetLibrary, loadAssets } from "./game/assets";
 import { DungeonView } from "./game/DungeonView";
 import { CombatLog } from "./ui/CombatLog";
 import { Hud } from "./ui/Hud";
 import { Inventory } from "./ui/Inventory";
+import { MobileControls } from "./ui/MobileControls";
 import "./App.css";
 
 type Status =
   | { kind: "idle" }
+  | { kind: "loading-assets" }
   | { kind: "connecting" }
   | { kind: "joining" }
   | { kind: "ready" }
@@ -28,6 +31,8 @@ function statusLabel(s: Status): string {
   switch (s.kind) {
     case "idle":
       return "Idle";
+    case "loading-assets":
+      return "Loading assets…";
     case "connecting":
       return "Connecting…";
     case "joining":
@@ -53,6 +58,7 @@ const KEY_TO_DIRECTION: Record<string, MoveDirection> = {
 export default function App() {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [snapshot, setSnapshot] = useState<GameStateSnapshotDto | null>(null);
+  const [assets, setAssets] = useState<AssetLibrary | null>(null);
   const connectionRef = useRef<HubConnection | null>(null);
   const latestSnapRef = useRef<GameStateSnapshotDto | null>(null);
 
@@ -62,6 +68,10 @@ export default function App() {
 
     void (async () => {
       try {
+        setStatus({ kind: "loading-assets" });
+        const lib = await loadAssets();
+        if (cancelled) return;
+        setAssets(lib);
         setStatus({ kind: "connecting" });
         const c = await connect();
         connectionRef.current = c;
@@ -160,6 +170,27 @@ export default function App() {
 
   const itemsUsable = snapshot != null && snapshot.mode !== GameMode.Resolution;
 
+  const handleMobileMove = (dir: MoveDirection) => {
+    const c = connectionRef.current;
+    if (!c) return;
+    void move(c, dir).catch(() => {});
+  };
+  const handleMobileFlee = () => {
+    const c = connectionRef.current;
+    if (!c) return;
+    void flee(c).catch(() => {});
+  };
+  const handleMobileDescend = () => {
+    const c = connectionRef.current;
+    if (!c) return;
+    void descend(c).catch(() => {});
+  };
+  const handleUseItem = (itemId: string) => {
+    const c = connectionRef.current;
+    if (!c || !itemsUsable) return;
+    void invokeUseItem(c, itemId).catch(() => {});
+  };
+
   const onStairsDown = (() => {
     if (!snapshot) return false;
     const { width, tiles } = snapshot.floor;
@@ -175,10 +206,23 @@ export default function App() {
         onRestart={handleRestart}
         onStairsDown={onStairsDown}
       />
-      <DungeonView snapshot={snapshot} />
+      {assets && <DungeonView snapshot={snapshot} assets={assets} />}
       {showCombatLog && snapshot?.combat && <CombatLog log={snapshot.combat} />}
       {snapshot && (
-        <Inventory items={snapshot.player.inventory} usable={itemsUsable} />
+        <Inventory
+          items={snapshot.player.inventory}
+          usable={itemsUsable}
+          onUse={handleUseItem}
+        />
+      )}
+      {snapshot && (
+        <MobileControls
+          onMove={handleMobileMove}
+          onFlee={handleMobileFlee}
+          onDescend={handleMobileDescend}
+          showFlee={snapshot.mode === GameMode.Combat}
+          showDescend={onStairsDown}
+        />
       )}
     </div>
   );

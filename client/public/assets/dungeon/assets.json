@@ -1,0 +1,204 @@
+{
+  "$schema": "spec in VISUAL_POLISH.md › Manifest Schema",
+  "version": 1,
+  "tilesetSource": "0x72 Dungeon Tileset II v1.7",
+
+  "atlases": {
+    "main": {
+      "src": "/assets/dungeon/0x72_DungeonTilesetII_v1.7/0x72_DungeonTilesetII_v1.7.png",
+      "tileSize": 16
+    }
+  },
+
+  "tiles": {
+    "Floor":      { "atlas": "main", "frame": [16, 64, 16, 16] },
+    "Wall":       { "atlas": "main", "frame": [32, 16, 16, 16] },
+    "Door":       { "atlas": "main", "frame": [32, 240, 32, 32], "tilesWide": 2, "tilesTall": 2, "anchor": [0.5, 1.0] },
+    "OpenDoor":   { "atlas": "main", "frame": [80, 240, 32, 32], "tilesWide": 2, "tilesTall": 2, "anchor": [0.5, 1.0] },
+    "LockedDoor": { "atlas": "main", "frame": [32, 240, 32, 32], "tilesWide": 2, "tilesTall": 2, "anchor": [0.5, 1.0] },
+    "StairsUp":   { "atlas": "main", "frame": [48, 96, 16, 16] },
+    "StairsDown": { "atlas": "main", "frame": [80, 192, 16, 16] }
+  },
+
+  "tileWeathering": {
+    "Floor": [
+      { "atlas": "main", "frame": [32, 64, 16, 16], "spriteName": "floor_2" },
+      { "atlas": "main", "frame": [48, 64, 16, 16], "spriteName": "floor_3" },
+      { "atlas": "main", "frame": [16, 80, 16, 16], "spriteName": "floor_4" },
+      { "atlas": "main", "frame": [32, 80, 16, 16], "spriteName": "floor_5" },
+      { "atlas": "main", "frame": [48, 80, 16, 16], "spriteName": "floor_6" },
+      { "atlas": "main", "frame": [16, 96, 16, 16], "spriteName": "floor_7" },
+      { "atlas": "main", "frame": [32, 96, 16, 16], "spriteName": "floor_8" }
+    ],
+    "Wall": [
+      { "atlas": "main", "frame": [48, 32, 16, 16], "spriteName": "wall_hole_1" },
+      { "atlas": "main", "frame": [48, 48, 16, 16], "spriteName": "wall_hole_2" }
+    ]
+  },
+
+  "decorations": {
+    "column":      { "atlas": "main", "frame": [80, 80, 16, 48], "anchor": [0.5, 1.0], "spriteName": "column" },
+    "column_wall": { "atlas": "main", "frame": [96, 80, 16, 48], "anchor": [0.5, 1.0], "spriteName": "column_wall" }
+  },
+
+  "items": {
+    "Healing Draught": { "atlas": "main", "frame": [288, 352, 16, 16], "spriteName": "flask_red" },
+    "Bone Charm":      { "atlas": "main", "frame": [288, 432, 16, 16], "spriteName": "skull" }
+  },
+
+  "characters": {
+    "Player": {
+      "spriteName": "knight_m",
+      "size": [16, 28],
+      "anchor": [0.5, 1.0],
+      "flipX": false,
+      "animations": {
+        "idle": { "atlas": "main", "origin": [128, 100], "frameCount": 4, "frameStep": [16, 0], "fps": 6 },
+        "run":  { "atlas": "main", "origin": [192, 100], "frameCount": 4, "frameStep": [16, 0], "fps": 12 },
+        "hit":  { "atlas": "main", "origin": [256, 100], "frameCount": 1, "frameStep": [16, 0], "fps": 1 }
+      }
+    },
+
+    "Husk": {
+      "spriteName": "tiny_zombie",
+      "size": [16, 16],
+      "anchor": [0.5, 1.0],
+      "flipX": false,
+      "animations": {
+        "idle": { "atlas": "main", "origin": [368, 16], "frameCount": 4, "frameStep": [16, 0], "fps": 5 },
+        "run":  { "atlas": "main", "origin": [432, 16], "frameCount": 4, "frameStep": [16, 0], "fps": 10 }
+      }
+    },
+
+    "Rasper": {
+      "spriteName": "imp",
+      "size": [16, 16],
+      "anchor": [0.5, 1.0],
+      "flipX": false,
+      "animations": {
+        "idle": { "atlas": "main", "origin": [368, 64], "frameCount": 4, "frameStep": [16, 0], "fps": 8 },
+        "run":  { "atlas": "main", "origin": [432, 64], "frameCount": 4, "frameStep": [16, 0], "fps": 14 }
+      }
+    },
+
+    "Hulk": {
+      "spriteName": "orc_warrior",
+      "size": [16, 23],
+      "anchor": [0.5, 1.0],
+      "flipX": false,
+      "animations": {
+        "idle": { "atlas": "main", "origin": [368, 177], "frameCount": 4, "frameStep": [16, 0], "fps": 4 },
+        "run":  { "atlas": "main", "origin": [432, 177], "frameCount": 4, "frameStep": [16, 0], "fps": 8 }
+      }
+    },
+
+    "Slug": {
+      "spriteName": "tiny_slug",
+      "size": [16, 16],
+      "anchor": [0.5, 1.0],
+      "flipX": false,
+      "animations": {
+        "idle": { "atlas": "main", "origin": [432, 376], "frameCount": 4, "frameStep": [16, 0], "fps": 5 },
+        "run":  { "atlas": "main", "origin": [432, 376], "frameCount": 4, "frameStep": [16, 0], "fps": 9 }
+      }
+    },
+
+    "Big Slug": {
+      "spriteName": "slug",
+      "size": [16, 23],
+      "anchor": [0.5, 1.0],
+      "flipX": false,
+      "animations": {
+        "idle": { "atlas": "main", "origin": [368, 369], "frameCount": 4, "frameStep": [16, 0], "fps": 4 },
+        "run":  { "atlas": "main", "origin": [368, 369], "frameCount": 4, "frameStep": [16, 0], "fps": 7 }
+      }
+    }
+  },
+
+  "characterExtras": {
+    "Goblin": {
+      "spriteName": "goblin",
+      "size": [16, 16],
+      "anchor": [0.5, 1.0],
+      "animations": {
+        "idle": { "atlas": "main", "origin": [368, 40], "frameCount": 4, "frameStep": [16, 0], "fps": 6 },
+        "run":  { "atlas": "main", "origin": [432, 40], "frameCount": 4, "frameStep": [16, 0], "fps": 12 }
+      }
+    },
+    "Skeleton": {
+      "spriteName": "skelet",
+      "size": [16, 16],
+      "anchor": [0.5, 1.0],
+      "animations": {
+        "idle": { "atlas": "main", "origin": [368, 88], "frameCount": 4, "frameStep": [16, 0], "fps": 6 },
+        "run":  { "atlas": "main", "origin": [432, 88], "frameCount": 4, "frameStep": [16, 0], "fps": 12 }
+      }
+    },
+    "Chort": {
+      "spriteName": "chort",
+      "size": [16, 23],
+      "anchor": [0.5, 1.0],
+      "animations": {
+        "idle": { "atlas": "main", "origin": [368, 273], "frameCount": 4, "frameStep": [16, 0], "fps": 6 },
+        "run":  { "atlas": "main", "origin": [432, 273], "frameCount": 4, "frameStep": [16, 0], "fps": 12 }
+      }
+    },
+    "MaskedOrc": {
+      "spriteName": "masked_orc",
+      "size": [16, 23],
+      "anchor": [0.5, 1.0],
+      "animations": {
+        "idle": { "atlas": "main", "origin": [368, 153], "frameCount": 4, "frameStep": [16, 0], "fps": 6 },
+        "run":  { "atlas": "main", "origin": [432, 153], "frameCount": 4, "frameStep": [16, 0], "fps": 12 }
+      }
+    },
+    "BigZombie": {
+      "spriteName": "big_zombie",
+      "size": [32, 36],
+      "anchor": [0.5, 1.0],
+      "animations": {
+        "idle": { "atlas": "main", "origin": [16, 332], "frameCount": 4, "frameStep": [32, 0], "fps": 4 },
+        "run":  { "atlas": "main", "origin": [144, 332], "frameCount": 4, "frameStep": [32, 0], "fps": 8 }
+      }
+    },
+    "Ogre": {
+      "spriteName": "ogre",
+      "size": [32, 36],
+      "anchor": [0.5, 1.0],
+      "animations": {
+        "idle": { "atlas": "main", "origin": [16, 380], "frameCount": 4, "frameStep": [32, 0], "fps": 4 },
+        "run":  { "atlas": "main", "origin": [144, 380], "frameCount": 4, "frameStep": [32, 0], "fps": 8 }
+      }
+    },
+    "BigDemon": {
+      "spriteName": "big_demon",
+      "size": [32, 36],
+      "anchor": [0.5, 1.0],
+      "animations": {
+        "idle": { "atlas": "main", "origin": [16, 428], "frameCount": 4, "frameStep": [32, 0], "fps": 4 },
+        "run":  { "atlas": "main", "origin": [144, 428], "frameCount": 4, "frameStep": [32, 0], "fps": 8 }
+      }
+    }
+  },
+
+  "doors": {
+    "leaf_closed": { "atlas": "main", "frame": [32, 240, 32, 32] },
+    "leaf_open":   { "atlas": "main", "frame": [80, 240, 32, 32] },
+    "frame_left":  { "atlas": "main", "frame": [16, 240, 16, 32] },
+    "frame_right": { "atlas": "main", "frame": [64, 240, 16, 32] },
+    "frame_top":   { "atlas": "main", "frame": [32, 224, 32, 16] }
+  },
+
+  "weapons": {
+    "knight_sword":  { "atlas": "main", "frame": [339, 98, 10, 29] },
+    "regular_sword": { "atlas": "main", "frame": [323, 10, 10, 21] },
+    "rusty_sword":   { "atlas": "main", "frame": [307, 10, 10, 21] },
+    "duel_sword":    { "atlas": "main", "frame": [325, 97, 9, 30] },
+    "anime_sword":   { "atlas": "main", "frame": [322, 65, 12, 30] },
+    "katana":        { "atlas": "main", "frame": [293, 66, 6, 29] },
+    "knife":         { "atlas": "main", "frame": [293, 10, 6, 13] },
+    "spear":         { "atlas": "main", "frame": [309, 161, 6, 30] },
+    "axe":           { "atlas": "main", "frame": [341, 74, 9, 21] },
+    "bow":           { "atlas": "main", "frame": [289, 195, 14, 26] }
+  }
+}

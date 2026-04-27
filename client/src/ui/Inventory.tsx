@@ -3,9 +3,10 @@ import type { ItemDto } from "../api/types";
 interface InventoryProps {
   items: ItemDto[];
   usable: boolean; // can the player use consumables right now? (false in Resolution)
+  onUse?: (itemId: string) => void;
 }
 
-export function Inventory({ items, usable }: InventoryProps) {
+export function Inventory({ items, usable, onUse }: InventoryProps) {
   if (items.length === 0) return null;
 
   // Hotkey indices are stable per-render: first 9 consumables get keys 1..9.
@@ -25,10 +26,19 @@ export function Inventory({ items, usable }: InventoryProps) {
         {items.map((item) => {
           const key = consumableHotkeys.get(item.id);
           const active = usable && item.isConsumable && key !== undefined;
+          const tappable = active && onUse !== undefined;
           return (
             <li
               key={item.id}
-              className={`inventory-item ${item.isConsumable ? "consumable" : "passive"}`}
+              className={`inventory-item ${item.isConsumable ? "consumable" : "passive"} ${tappable ? "tappable" : ""}`}
+              onPointerDown={
+                tappable
+                  ? (e) => {
+                      e.preventDefault();
+                      onUse(item.id);
+                    }
+                  : undefined
+              }
             >
               <span className={`inventory-key ${active ? "active" : ""}`}>
                 {key !== undefined ? key : item.isConsumable ? "—" : "P"}

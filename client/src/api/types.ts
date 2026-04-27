@@ -7,6 +7,8 @@ export const TileType = {
   Door: 2,
   StairsUp: 3,
   StairsDown: 4,
+  OpenDoor: 5,
+  LockedDoor: 6,
 } as const;
 export type TileType = (typeof TileType)[keyof typeof TileType];
 
@@ -56,6 +58,20 @@ export const ItemEffect = {
 } as const;
 export type ItemEffect = (typeof ItemEffect)[keyof typeof ItemEffect];
 
+export const CombatEventKind = {
+  Narrative: 0,
+  Hit: 1,
+  Crit: 2,
+  Miss: 3,
+  Fumble: 4,
+  Heal: 5,
+  Death: 6,
+  Loot: 7,
+  Flee: 8,
+} as const;
+export type CombatEventKind =
+  (typeof CombatEventKind)[keyof typeof CombatEventKind];
+
 export interface ItemDto {
   id: string;
   name: string;
@@ -98,9 +114,17 @@ export interface PlayerSnapshotDto {
   inventory: ItemDto[];
 }
 
+export interface CombatEventDto {
+  actorId: string | null;
+  targetId: string | null;
+  kind: CombatEventKind;
+  damage: number | null;
+  description: string;
+}
+
 export interface CombatRoundDto {
   number: number;
-  events: string[];
+  events: CombatEventDto[];
 }
 
 export interface CombatLogDto {

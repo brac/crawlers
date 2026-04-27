@@ -62,7 +62,16 @@ public static class SnapshotMapper
     public static CombatLogDto ToCombatLog(CombatLog log) => new(
         Outcome: log.Outcome,
         Rounds: log.Rounds
-            .Select(r => new CombatRoundDto(r.Number, r.Events.Select(e => e.Description).ToList()))
+            .Select(r => new CombatRoundDto(
+                r.Number,
+                r.Events
+                    .Select(e => new CombatEventDto(
+                        e.ActorId,
+                        e.TargetId,
+                        e.Kind,
+                        e.Damage,
+                        e.Description))
+                    .ToList()))
             .ToList()
     );
 }

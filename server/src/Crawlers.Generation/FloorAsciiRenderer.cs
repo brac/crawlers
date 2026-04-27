@@ -18,6 +18,8 @@ public static class FloorAsciiRenderer
                     TileType.Wall => '#',
                     TileType.Floor => '.',
                     TileType.Door => '+',
+                    TileType.OpenDoor => '/',
+                    TileType.LockedDoor => 'L',
                     TileType.StairsUp => '<',
                     TileType.StairsDown => '>',
                     _ => '?'

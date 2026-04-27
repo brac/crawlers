@@ -32,9 +32,14 @@ public class CombatService
         // Round 0 holds the setup events so the client can render the
         // engagement preamble in the same panel as round-by-round combat.
         var round0 = new CombatRound { Number = 0 };
-        round0.Events.Add(new CombatEvent { Description = $"A {enemy.Name} closes in. Combat!" });
         round0.Events.Add(new CombatEvent
         {
+            Kind = CombatEventKind.Narrative,
+            Description = $"A {enemy.Name} closes in. Combat!"
+        });
+        round0.Events.Add(new CombatEvent
+        {
+            Kind = CombatEventKind.Narrative,
             Description = playerFirst
                 ? $"You move first. (initiative: you {playerInit}, them {enemyInit})"
                 : $"The {enemy.Name} moves first. (initiative: them {enemyInit}, you {playerInit})"
@@ -100,23 +105,49 @@ public class CombatService
         var lastRound = state.ActiveCombat.Log.Rounds.Count > 0
             ? state.ActiveCombat.Log.Rounds[^1]
             : null;
+        var enemyId = state.ActiveCombat.EnemyId;
 
         switch (outcome)
         {
             case CombatOutcome.PlayerWon:
-                lastRound?.Events.Add(new CombatEvent { Description = "The enemy crumples to dust." });
+                lastRound?.Events.Add(new CombatEvent
+                {
+                    Kind = CombatEventKind.Death,
+                    TargetId = enemyId,
+                    Description = "The enemy crumples to dust."
+                });
                 DropLoot(state, dice, lastRound);
                 state.EnemiesKilled++;
+                MaybeUnlockBossDoor(state, enemyId);
                 state.Session.Mode = GameMode.Exploration;
                 break;
             case CombatOutcome.PlayerFled:
                 state.Session.Mode = GameMode.Exploration;
                 break;
             case CombatOutcome.PlayerDied:
-                lastRound?.Events.Add(new CombatEvent { Description = "Darkness takes you." });
+                lastRound?.Events.Add(new CombatEvent
+                {
+                    Kind = CombatEventKind.Death,
+                    TargetId = state.Player.Id,
+                    Description = "Darkness takes you."
+                });
                 state.Session.Mode = GameMode.Resolution;
                 break;
         }
+    }
+
+    /// <summary>
+    /// If the player just killed the floor's locked-room boss, unlock the
+    /// door so they can leave (or descend). Clears BossEntityId so the lock
+    /// trigger never re-fires on this floor.
+    /// </summary>
+    private static void MaybeUnlockBossDoor(SessionState state, Guid? deadEnemyId)
+    {
+        var floor = state.Floor;
+        if (deadEnemyId is null || floor.BossEntityId != deadEnemyId) return;
+        if (floor.BossDoor is { } door)
+            floor.TileGrid[door.X, door.Y] = new Tile(TileType.OpenDoor);
+        floor.BossEntityId = null;
     }
 
     private static void DropLoot(SessionState state, Dice dice, CombatRound? lastRound)
@@ -149,7 +180,11 @@ public class CombatService
             Item = item
         });
 
-        lastRound?.Events.Add(new CombatEvent { Description = $"It drops a {item.Name}." });
+        lastRound?.Events.Add(new CombatEvent
+        {
+            Kind = CombatEventKind.Loot,
+            Description = $"It drops a {item.Name}."
+        });
     }
 
     private CombatOutcome ResolveFlee(SessionState state, Entity enemy, Dice dice, CombatRound round)
@@ -161,13 +196,24 @@ public class CombatService
             int dy = Math.Abs(enemy.Position.Y - state.Player.Position.Y);
             if (Math.Max(dx, dy) <= 1)
             {
-                round.Events.Add(new CombatEvent { Description = $"The {enemy.Name} swings as you turn to flee!" });
+                round.Events.Add(new CombatEvent
+                {
+                    Kind = CombatEventKind.Narrative,
+                    ActorId = enemy.Id,
+                    TargetId = state.Player.Id,
+                    Description = $"The {enemy.Name} swings as you turn to flee!"
+                });
                 EnemyAttack(enemy, state.Player, dice, round);
                 if (state.Player.Stats.Hp <= 0)
                     return CombatOutcome.PlayerDied;
             }
         }
-        round.Events.Add(new CombatEvent { Description = "You break for the corridor." });
+        round.Events.Add(new CombatEvent
+        {
+            Kind = CombatEventKind.Flee,
+            ActorId = state.Player.Id,
+            Description = "You break for the corridor."
+        });
         return CombatOutcome.PlayerFled;
     }
 
@@ -204,8 +250,14 @@ public class CombatService
     private static void ApplyConsumable(SessionState state, Item item, CombatRound round)
     {
         var description = ItemUseHelper.Apply(state, item);
-        if (description is not null)
-            round.Events.Add(new CombatEvent { Description = description });
+        if (description is null) return;
+        round.Events.Add(new CombatEvent
+        {
+            Kind = item.Effect == ItemEffect.Heal ? CombatEventKind.Heal : CombatEventKind.Narrative,
+            ActorId = state.Player.Id,
+            TargetId = state.Player.Id,
+            Description = description
+        });
     }
 
     private static void PlayerAttack(Player player, Entity enemy, Dice dice, CombatRound round)
@@ -214,7 +266,13 @@ public class CombatService
         int d20 = dice.D20();
         if (d20 == 1)
         {
-            round.Events.Add(new CombatEvent { Description = "You swing wildly and miss. (nat 1)" });
+            round.Events.Add(new CombatEvent
+            {
+                Kind = CombatEventKind.Fumble,
+                ActorId = player.Id,
+                TargetId = enemy.Id,
+                Description = "You swing wildly and miss. (nat 1)"
+            });
             return;
         }
         int passiveAtk = ItemEffects.AttackBonusFromInventory(player);
@@ -224,6 +282,9 @@ public class CombatService
         {
             round.Events.Add(new CombatEvent
             {
+                Kind = CombatEventKind.Miss,
+                ActorId = player.Id,
+                TargetId = enemy.Id,
                 Description = $"You miss the {enemy.Name}. ({total} vs AC {s.Ac})"
             });
             return;
@@ -235,6 +296,10 @@ public class CombatService
         enemy.Stats = s with { Hp = newHp };
         round.Events.Add(new CombatEvent
         {
+            Kind = crit ? CombatEventKind.Crit : CombatEventKind.Hit,
+            ActorId = player.Id,
+            TargetId = enemy.Id,
+            Damage = dmg,
             Description = crit
                 ? $"You crit the {enemy.Name} for {dmg}! ({newHp}/{s.MaxHp})"
                 : $"You hit the {enemy.Name} for {dmg}. ({newHp}/{s.MaxHp})"
@@ -247,7 +312,13 @@ public class CombatService
         int d20 = dice.D20();
         if (d20 == 1)
         {
-            round.Events.Add(new CombatEvent { Description = $"The {enemy.Name}'s strike goes wide. (nat 1)" });
+            round.Events.Add(new CombatEvent
+            {
+                Kind = CombatEventKind.Fumble,
+                ActorId = enemy.Id,
+                TargetId = player.Id,
+                Description = $"The {enemy.Name}'s strike goes wide. (nat 1)"
+            });
             return;
         }
         int total = d20 + es.AttackMod;
@@ -256,6 +327,9 @@ public class CombatService
         {
             round.Events.Add(new CombatEvent
             {
+                Kind = CombatEventKind.Miss,
+                ActorId = enemy.Id,
+                TargetId = player.Id,
                 Description = $"The {enemy.Name} misses you. ({total} vs AC {player.Stats.Ac})"
             });
             return;
@@ -267,6 +341,10 @@ public class CombatService
         player.Stats = player.Stats with { Hp = newHp };
         round.Events.Add(new CombatEvent
         {
+            Kind = crit ? CombatEventKind.Crit : CombatEventKind.Hit,
+            ActorId = enemy.Id,
+            TargetId = player.Id,
+            Damage = dmg,
             Description = crit
                 ? $"The {enemy.Name} crits you for {dmg}! ({newHp}/{player.Stats.MaxHp})"
                 : $"The {enemy.Name} hits you for {dmg}. ({newHp}/{player.Stats.MaxHp})"
