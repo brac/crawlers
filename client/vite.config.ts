@@ -12,6 +12,11 @@ export default defineConfig({
         ws: true,
         changeOrigin: true,
       },
+      '/lobby': {
+        target: 'http://localhost:5238',
+        ws: true,
+        changeOrigin: true,
+      },
     },
   },
 })

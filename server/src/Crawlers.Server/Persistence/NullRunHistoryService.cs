@@ -12,11 +12,11 @@ public class NullRunHistoryService : IRunHistoryService
     private readonly ILogger<NullRunHistoryService> _logger;
     public NullRunHistoryService(ILogger<NullRunHistoryService> logger) => _logger = logger;
 
-    public Task RecordDeathAsync(SessionState state, string? causeOfDeath, CancellationToken ct = default)
+    public Task RecordDeathAsync(SessionState state, Guid playerId, string? causeOfDeath, CancellationToken ct = default)
     {
         _logger.LogDebug(
-            "RunHistory persistence disabled — death of session {SessionId} not recorded.",
-            state.Session.Id);
+            "RunHistory persistence disabled — death of player {PlayerId} in session {SessionId} not recorded.",
+            playerId, state.Session.Id);
         return Task.CompletedTask;
     }
 }

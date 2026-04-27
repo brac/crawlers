@@ -14,4 +14,7 @@ public class Entity
 
     /// <summary>The actual Item carried, when Type == EntityType.Item.</summary>
     public Item? Item { get; set; }
+
+    /// <summary>Owning player id, when Type == EntityType.Corpse.</summary>
+    public Guid? PlayerId { get; set; }
 }

@@ -12,7 +12,7 @@ public class EnemyTemplateTests
     {
         var e = EnemyTemplates.Create(EnemyArchetype.Husk, new Position(2, 2), Guid.NewGuid());
         Assert.Equal("Husk", e.Name);
-        Assert.Equal(8, e.Stats!.Hp);
+        Assert.Equal(e.Stats!.MaxHp, e.Stats.Hp); // Husk spawns at full HP
         Assert.Equal(11, e.Stats.Ac);
         Assert.Equal(0, e.Stats.InitiativeMod);
     }
@@ -20,9 +20,10 @@ public class EnemyTemplateTests
     [Fact]
     public void Rasper_is_fast_and_fragile()
     {
+        var husk = EnemyTemplates.Create(EnemyArchetype.Husk, new Position(2, 2), Guid.NewGuid());
         var e = EnemyTemplates.Create(EnemyArchetype.Rasper, new Position(2, 2), Guid.NewGuid());
         Assert.Equal("Rasper", e.Name);
-        Assert.True(e.Stats!.Hp < 8);                 // less HP than Husk
+        Assert.True(e.Stats!.Hp < husk.Stats!.Hp);    // less HP than Husk
         Assert.True(e.Stats.InitiativeMod > 0);       // higher initiative
         Assert.True(e.Stats.Ac >= 12);                // harder to hit
     }
@@ -30,9 +31,10 @@ public class EnemyTemplateTests
     [Fact]
     public void Hulk_is_slow_and_tough()
     {
+        var husk = EnemyTemplates.Create(EnemyArchetype.Husk, new Position(2, 2), Guid.NewGuid());
         var e = EnemyTemplates.Create(EnemyArchetype.Hulk, new Position(2, 2), Guid.NewGuid());
         Assert.Equal("Hulk", e.Name);
-        Assert.True(e.Stats!.Hp > 8);                 // more HP than Husk
+        Assert.True(e.Stats!.Hp > husk.Stats!.Hp);    // more HP than Husk
         Assert.True(e.Stats.InitiativeMod < 0);       // lower initiative
         Assert.True(e.Stats.Damage.Sides >= 8);       // bigger damage die
     }

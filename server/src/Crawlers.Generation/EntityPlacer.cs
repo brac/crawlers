@@ -5,7 +5,7 @@ namespace Crawlers.Generation;
 
 public class EntityPlacer
 {
-    public const int DefaultEnemyCount = 4;
+    public const int DefaultEnemyCount = 7;
 
     public void Place(Floor floor, Random rng, int enemyCount = DefaultEnemyCount)
     {

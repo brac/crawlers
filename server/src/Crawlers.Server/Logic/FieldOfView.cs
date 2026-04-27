@@ -5,10 +5,59 @@ namespace Crawlers.Server.Logic;
 
 public static class FieldOfView
 {
+    /// <summary>
+    /// Single-source compute: demote currently-Visible tiles to Explored,
+    /// then mark everything reachable from <paramref name="center"/> within
+    /// <paramref name="radius"/> as Visible. Used for tests and as a building
+    /// block for multi-source recomputes.
+    /// </summary>
     public static void Compute(Floor floor, Position center, int radius, VisibilityState[,] fog)
     {
         DemoteVisibleToExplored(floor, fog);
+        CastRaysFrom(floor, center, radius, fog);
+    }
 
+    /// <summary>
+    /// Multi-source recompute used for shared fog: every player on a floor is
+    /// a vision source. Demote happens once at the start so a tile that's no
+    /// longer in anyone's LOS drops to Explored, then each source contributes
+    /// its visible set in a single pass.
+    /// </summary>
+    public static void RecomputeAll(
+        Floor floor,
+        IReadOnlyList<(Position center, int radius)> sources,
+        VisibilityState[,] fog)
+    {
+        DemoteVisibleToExplored(floor, fog);
+        foreach (var (center, radius) in sources)
+            CastRaysFrom(floor, center, radius, fog);
+    }
+
+    /// <summary>
+    /// Convenience wrapper: read positions + sight radii directly off a list
+    /// of players. Used by services that already have the player list in hand.
+    /// </summary>
+    public static void RecomputeForFloor(
+        Floor floor,
+        VisibilityState[,] fog,
+        IEnumerable<Player> players)
+    {
+        var sources = players
+            .Select(p => (p.Position, p.Stats.SightRadius))
+            .ToList();
+        RecomputeAll(floor, sources, fog);
+    }
+
+    private static void DemoteVisibleToExplored(Floor floor, VisibilityState[,] fog)
+    {
+        for (int y = 0; y < floor.Height; y++)
+            for (int x = 0; x < floor.Width; x++)
+                if (fog[x, y] == VisibilityState.Visible)
+                    fog[x, y] = VisibilityState.Explored;
+    }
+
+    private static void CastRaysFrom(Floor floor, Position center, int radius, VisibilityState[,] fog)
+    {
         int rSq = radius * radius;
         for (int dy = -radius; dy <= radius; dy++)
         {
@@ -18,18 +67,9 @@ public static class FieldOfView
                 int tx = center.X + dx;
                 int ty = center.Y + dy;
                 if (!InBounds(floor, tx, ty)) continue;
-
                 CastRay(floor, fog, center, new Position(tx, ty));
             }
         }
-    }
-
-    private static void DemoteVisibleToExplored(Floor floor, VisibilityState[,] fog)
-    {
-        for (int y = 0; y < floor.Height; y++)
-            for (int x = 0; x < floor.Width; x++)
-                if (fog[x, y] == VisibilityState.Visible)
-                    fog[x, y] = VisibilityState.Explored;
     }
 
     private static void CastRay(Floor floor, VisibilityState[,] fog, Position from, Position to)

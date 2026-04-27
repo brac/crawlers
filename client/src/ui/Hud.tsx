@@ -4,7 +4,6 @@ import { GameMode } from "../api/types";
 interface HudProps {
   snapshot: GameStateSnapshotDto | null;
   status: string;
-  onRestart: () => void;
   onStairsDown: boolean;
 }
 
@@ -14,7 +13,7 @@ const MODE_LABEL: Record<GameMode, string> = {
   [GameMode.Resolution]: "Resolution",
 };
 
-export function Hud({ snapshot, status, onRestart, onStairsDown }: HudProps) {
+export function Hud({ snapshot, status, onStairsDown }: HudProps) {
   const inCombat = snapshot?.mode === GameMode.Combat;
   const dead = snapshot?.mode === GameMode.Resolution;
 
@@ -73,14 +72,7 @@ export function Hud({ snapshot, status, onRestart, onStairsDown }: HudProps) {
           Stairs lead deeper. Press <kbd>&gt;</kbd> to descend.
         </div>
       )}
-      {dead && (
-        <div className="combat-banner combat-banner-dead">
-          <span>☠ You died.</span>
-          <button type="button" className="restart-button" onClick={onRestart}>
-            Start a new run
-          </button>
-        </div>
-      )}
+      {/* Death banner / spectator UI lives in <SpectatorOverlay /> in Game.tsx. */}
     </>
   );
 }

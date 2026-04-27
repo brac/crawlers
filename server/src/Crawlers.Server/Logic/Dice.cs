@@ -17,6 +17,10 @@ public class Dice
 
     public virtual int D20() => _rng.Next(1, 21);
 
+    /// <summary>Random non-negative integer in [0, exclusiveMax). Used for
+    /// picking a target among participants without bias.</summary>
+    public virtual int NextInt(int exclusiveMax) => _rng.Next(exclusiveMax);
+
     public virtual int Roll(DiceRoll d)
     {
         int sum = 0;

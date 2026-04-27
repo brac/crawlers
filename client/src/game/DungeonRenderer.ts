@@ -1,5 +1,9 @@
-import { AnimatedSprite, Application, Container, Sprite } from "pixi.js";
-import type { EntityDto, GameStateSnapshotDto } from "../api/types";
+import { AnimatedSprite, Application, Container, Sprite, Text } from "pixi.js";
+import type {
+  CombatLogDto,
+  EntityDto,
+  GameStateSnapshotDto,
+} from "../api/types";
 import {
   CombatEventKind,
   EntityType,
@@ -72,6 +76,10 @@ interface TrackedSprite {
   // name so we can swap idle/run on demand.
   characterName: string | null;
   currentAnim: "idle" | "run" | null;
+  /** Sprite's "natural" tint when not in a combat anim. 0xffffff for local
+   *  player and enemies; other players get their differentiator colour so
+   *  hit flashes fade back into the right hue instead of pure white. */
+  baseTint: number;
 }
 
 interface PendingAnim {
@@ -91,6 +99,30 @@ interface ActiveAnim extends PendingAnim {
   unitDy: number;
   startedAt: number;
 }
+
+interface OtherPlayerEntry {
+  tracked: TrackedSprite;
+  label: Text;
+  weapon: Sprite | null;
+  /** True once this teammate's hp has hit 0. The corpse Entity at their
+   *  death tile becomes the visual; we hide their character sprite + label
+   *  + weapon so the corpse stands alone. */
+  isDead: boolean;
+}
+
+// Tints applied to teammate sprites so the local player can tell them apart.
+// Hand-picked to avoid pure white (the local player) and red/green (combat
+// hit / heal tints), and to stay legible against the dungeon palette.
+const OTHER_PLAYER_TINTS = [
+  0x88ccff, // soft blue
+  0xffcc55, // gold
+  0xa6e16d, // chartreuse
+  0xcc88ff, // lavender
+  0xff9966, // coral
+  0x66e0d6, // teal
+];
+
+const LABEL_OFFSET_PX = 4;
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -179,19 +211,34 @@ function blendColor(a: number, b: number, k: number): number {
 
 export class DungeonRenderer {
   private app: Application | null = null;
+  // tileLayer: static floor + walls, drawn back-to-front by row.
+  // spriteLayer: everything that can change Y or weave between rows — entities,
+  //   players, weapons, *and door overlays*. Sortable so each child's zIndex
+  //   (set to its anchored world Y) determines per-pixel-row draw order:
+  //   a door anchored at the bottom of its tile draws *over* a player whose
+  //   feet are in the row above it (correct), and *under* a player whose feet
+  //   are in the row below it.
+  // uiLayer: name labels — pinned above their owners and never occluded.
   private tileLayer = new Container();
-  private entityLayer = new Container();
-  private playerLayer = new Container();
+  private spriteLayer = new Container();
+  private uiLayer = new Container();
   private worldContainer = new Container();
   private assets: AssetLibrary;
   private renderScale = MAX_RENDER_SCALE;
   private lastSnapshot: GameStateSnapshotDto | null = null;
   private entitySprites = new Map<string, TrackedSprite>();
+  private otherPlayerSprites = new Map<string, OtherPlayerEntry>();
+  // Door sprites tracked by tile coord so we can swap textures (closed → open
+  // → locked) without recreating the Sprite each snapshot.
+  private doorSprites = new Map<string, { sprite: Sprite; type: TileType }>();
   private playerSprite: TrackedSprite | null = null;
   private animQueue: PendingAnim[] = [];
   private activeAnim: ActiveAnim | null = null;
-  private seenEventCount = 0;
-  private hadCombat = false;
+  // Per-combat event watermark. Each entry is "I have already enqueued the
+  // first N events of this combat (id)". On every snapshot we walk every
+  // combat (the viewer's own + ambient teammate combats on the same floor)
+  // and push the events past the watermark into the anim queue.
+  private combatWatermarks = new Map<string, number>();
   private playerWeapon: Sprite | null = null;
   private cameraShakeUntil = 0;
   private cameraShakeDuration = 0;
@@ -214,9 +261,10 @@ export class DungeonRenderer {
     this.app = app;
     this.renderScale = pickRenderScale(width, height);
     this.worldContainer.scale.set(this.renderScale);
+    this.spriteLayer.sortableChildren = true;
     this.worldContainer.addChild(this.tileLayer);
-    this.worldContainer.addChild(this.entityLayer);
-    this.worldContainer.addChild(this.playerLayer);
+    this.worldContainer.addChild(this.spriteLayer);
+    this.worldContainer.addChild(this.uiLayer);
     app.stage.addChild(this.worldContainer);
     parent.appendChild(app.canvas);
     app.ticker.add(this.tick);
@@ -245,9 +293,14 @@ export class DungeonRenderer {
     const snap = isFirstSnapshot || isNewFloor || isNewSession;
     this.lastSnapshot = snapshot;
     this.drawTiles(snapshot);
+    this.updateDoors(snapshot, snap);
+    // Ingest combat events BEFORE updating entities/players so the new round's
+    // anim queue protects its referenced sprites (e.g. the enemy that just took
+    // the killing blow) from being culled before tryStartNextAnim can find them.
+    this.ingestCombatEvents(snapshot, snap);
     this.updateEntities(snapshot, snap);
     this.updatePlayer(snapshot, snap);
-    this.ingestCombatEvents(snapshot, snap);
+    this.updateOtherPlayers(snapshot, snap);
     if (snap) this.centerCameraOnPlayer();
   }
 
@@ -256,8 +309,8 @@ export class DungeonRenderer {
     const salt = snapshot.floorNumber;
     this.tileLayer.removeChildren();
 
-    // Pass 1: walls / floors / stairs. For door cells, draw a Floor base
-    // so the doorway isn't a hole when the door is rendered with overflow.
+    // Floors / walls / stairs only. Door overlays are drawn in updateDoors
+    // (they live in spriteLayer so they can z-sort with players).
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const i = y * width + x;
@@ -270,22 +323,76 @@ export class DungeonRenderer {
       }
     }
 
-    // Pass 2: door overlays — drawn on top of all walls/floors so a 32×32
-    // leaf sprite doesn't get partially covered by adjacent tiles iterated
-    // later in pass 1.
+    void rooms; // room-level decorations (e.g. columns) deferred — see VISUAL_POLISH
+  }
+
+  private updateDoors(snapshot: GameStateSnapshotDto, snap: boolean) {
+    const { width, height, tiles, visibility } = snapshot.floor;
+    const seen = new Set<string>();
+
+    // Floor / session change: throw away every door sprite — the old map
+    // doesn't apply to the new layout. Otherwise we'd leave ghosts on the
+    // new floor at the old coordinates.
+    if (snap) {
+      for (const entry of this.doorSprites.values()) {
+        this.spriteLayer.removeChild(entry.sprite);
+        entry.sprite.destroy();
+      }
+      this.doorSprites.clear();
+    }
+
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const i = y * width + x;
+        const t = tiles[i] as TileType;
+        if (!isDoorTile(t)) continue;
         const vis = visibility[i] as VisibilityState;
         const alpha = VISIBILITY_ALPHA[vis];
         if (alpha === 0) continue;
-        const t = tiles[i] as TileType;
-        if (!isDoorTile(t)) continue;
-        this.addTileSprite(t, x, y, alpha, salt);
+
+        const key = `${x},${y}`;
+        seen.add(key);
+        const existing = this.doorSprites.get(key);
+        if (existing && existing.type === t) {
+          existing.sprite.alpha = alpha;
+          continue;
+        }
+        if (existing) {
+          this.spriteLayer.removeChild(existing.sprite);
+          existing.sprite.destroy();
+          this.doorSprites.delete(key);
+        }
+        const sprite = this.makeDoorSprite(t, x, y, alpha);
+        this.spriteLayer.addChild(sprite);
+        this.doorSprites.set(key, { sprite, type: t });
       }
     }
 
-    void rooms; // room-level decorations (e.g. columns) deferred — see VISUAL_POLISH
+    // Cull doors that are no longer doors (or fell out of LOS to alpha=0).
+    for (const [key, entry] of this.doorSprites.entries()) {
+      if (seen.has(key)) continue;
+      this.spriteLayer.removeChild(entry.sprite);
+      entry.sprite.destroy();
+      this.doorSprites.delete(key);
+    }
+  }
+
+  private makeDoorSprite(t: TileType, x: number, y: number, alpha: number): Sprite {
+    const name = TILE_NAMES[t];
+    const ref = this.assets.manifest.tiles[name];
+    const tex = this.assets.tileTexture(name);
+    const sprite = new Sprite(tex);
+    const ax = ref.anchor?.[0] ?? 0.5;
+    const ay = ref.anchor?.[1] ?? 1.0;
+    sprite.anchor.set(ax, ay);
+    sprite.x = (x + 0.5) * TILE_SIZE;
+    sprite.y = (y + 1) * TILE_SIZE;
+    sprite.alpha = alpha;
+    // Static — anchored at the bottom of its tile, so its zIndex is the row
+    // y in pixel space. Players whose feet sit in the row above (smaller y)
+    // sort behind the door; players in the row below sort in front.
+    sprite.zIndex = sprite.y;
+    return sprite;
   }
 
   private addTileSprite(
@@ -355,7 +462,7 @@ export class DungeonRenderer {
       if (!created) continue;
       created.sprite.x = target.x;
       created.sprite.y = target.y;
-      this.entityLayer.addChild(created.sprite);
+      this.spriteLayer.addChild(created.sprite);
       this.entitySprites.set(e.id, created);
     }
     for (const [id, tracked] of this.entitySprites.entries()) {
@@ -365,7 +472,25 @@ export class DungeonRenderer {
       // around to animate against. Next snapshot picks it up after the queue
       // drains.
       if (this.isReferencedByAnim(id)) continue;
-      this.entityLayer.removeChild(tracked.sprite);
+      this.spriteLayer.removeChild(tracked.sprite);
+      tracked.sprite.destroy();
+      this.entitySprites.delete(id);
+    }
+  }
+
+  /// Sweep entity sprites against the latest snapshot and destroy any that
+  /// dropped out of view but were kept alive while a combat anim referenced
+  /// them. Safe to call every tick — when the snapshot already matches the
+  /// sprite map this is a no-op.
+  private cullDeferredEntities() {
+    const snap = this.lastSnapshot;
+    if (!snap) return;
+    const alive = new Set<string>();
+    for (const e of snap.floor.entities) alive.add(e.id);
+    for (const [id, tracked] of this.entitySprites.entries()) {
+      if (alive.has(id)) continue;
+      if (this.isReferencedByAnim(id)) continue;
+      this.spriteLayer.removeChild(tracked.sprite);
       tracked.sprite.destroy();
       this.entitySprites.delete(id);
     }
@@ -383,6 +508,102 @@ export class DungeonRenderer {
     );
   }
 
+  private updateOtherPlayers(snapshot: GameStateSnapshotDto, snap: boolean) {
+    const seen = new Set<string>();
+    for (const op of snapshot.otherPlayers) {
+      seen.add(op.id);
+      const target = {
+        x: (op.x + 0.5) * TILE_SIZE,
+        y: (op.y + 1) * TILE_SIZE,
+      };
+      const existing = this.otherPlayerSprites.get(op.id);
+      if (existing) {
+        this.retarget(existing.tracked, target.x, target.y, snap);
+        const desired = this.labelTextFor(op.id, op.inCombat);
+        if (existing.label.text !== desired) existing.label.text = desired;
+        existing.isDead = op.hp <= 0;
+        existing.tracked.sprite.visible = !existing.isDead;
+        existing.label.visible = !existing.isDead;
+        if (existing.weapon) existing.weapon.visible = !existing.isDead;
+        continue;
+      }
+      const tracked = this.spawnCharacter("Player");
+      if (!tracked) continue;
+      tracked.baseTint = this.tintForPlayer(op.id);
+      tracked.sprite.tint = tracked.baseTint;
+      tracked.sprite.x = target.x;
+      tracked.sprite.y = target.y;
+      const label = this.makeNameLabel(op.id, op.inCombat);
+      label.x = target.x;
+      label.y = target.y - TILE_SIZE - LABEL_OFFSET_PX;
+      const weapon = this.spawnWeaponSprite();
+      if (weapon) {
+        weapon.tint = tracked.sprite.tint;
+        // The tick loop positions it next frame — set initial pose so it
+        // doesn't flicker from (0,0) on spawn.
+        weapon.x = target.x + DungeonRenderer.WEAPON_OFFSET_X;
+        weapon.y = target.y - DungeonRenderer.WEAPON_OFFSET_Y;
+      }
+      this.spriteLayer.addChild(tracked.sprite);
+      if (weapon) this.spriteLayer.addChild(weapon);
+      // Labels live in the always-on-top uiLayer so they're never occluded
+      // by a wall, door, or another player's body.
+      this.uiLayer.addChild(label);
+      const entry: OtherPlayerEntry = { tracked, label, weapon, isDead: op.hp <= 0 };
+      if (entry.isDead) {
+        tracked.sprite.visible = false;
+        label.visible = false;
+        if (weapon) weapon.visible = false;
+      }
+      this.otherPlayerSprites.set(op.id, entry);
+    }
+    for (const [id, entry] of this.otherPlayerSprites.entries()) {
+      if (seen.has(id)) continue;
+      // Same deferral the entity cull uses: a pending or active combat anim
+      // may still reference this teammate's sprite (e.g. a killing-blow Hit
+      // landing as they fall off the snapshot). Destroy after the queue drains.
+      if (this.isReferencedByAnim(id)) continue;
+      this.spriteLayer.removeChild(entry.tracked.sprite);
+      this.uiLayer.removeChild(entry.label);
+      if (entry.weapon) this.spriteLayer.removeChild(entry.weapon);
+      entry.tracked.sprite.destroy();
+      entry.label.destroy();
+      entry.weapon?.destroy();
+      this.otherPlayerSprites.delete(id);
+    }
+  }
+
+  private labelTextFor(playerId: string, inCombat: boolean): string {
+    const base = `Player ${playerId.slice(0, 4).toUpperCase()}`;
+    return inCombat ? `${base} ⚔` : base;
+  }
+
+  private makeNameLabel(playerId: string, inCombat: boolean): Text {
+    const t = new Text({
+      text: this.labelTextFor(playerId, inCombat),
+      style: {
+        fontFamily: "ui-monospace, Menlo, monospace",
+        fontSize: 10,
+        fill: 0xffffff,
+        stroke: { color: 0x000000, width: 2 },
+      },
+    });
+    t.anchor.set(0.5, 1);
+    // Render at half size so the text resolves crisply when the worldContainer
+    // is later scaled 2-3× by pickRenderScale; gives ~5-7 effective px in-world.
+    t.scale.set(0.5);
+    return t;
+  }
+
+  private tintForPlayer(id: string): number {
+    // Deterministic — same player slot always picks the same colour across
+    // sessions, so a teammate's tint never reshuffles mid-run.
+    const cleaned = id.replace(/-/g, "").slice(0, 8);
+    const n = Number.parseInt(cleaned, 16);
+    const idx = Number.isFinite(n) ? n % OTHER_PLAYER_TINTS.length : 0;
+    return OTHER_PLAYER_TINTS[idx];
+  }
+
   private updatePlayer(snapshot: GameStateSnapshotDto, snap: boolean) {
     const { x, y } = snapshot.player;
     const target = { x: (x + 0.5) * TILE_SIZE, y: (y + 1) * TILE_SIZE };
@@ -391,7 +612,7 @@ export class DungeonRenderer {
       if (!tracked) return;
       tracked.sprite.x = target.x;
       tracked.sprite.y = target.y;
-      this.playerLayer.addChild(tracked.sprite);
+      this.spriteLayer.addChild(tracked.sprite);
       this.playerSprite = tracked;
       this.spawnPlayerWeapon();
       return;
@@ -399,15 +620,20 @@ export class DungeonRenderer {
     this.retarget(this.playerSprite, target.x, target.y, snap);
   }
 
-  private spawnPlayerWeapon() {
+  private spawnWeaponSprite(): Sprite | null {
     const tex = this.assets.weaponTexture("regular_sword");
-    if (!tex) return;
+    if (!tex) return null;
     const w = new Sprite(tex);
     // Anchor near the bottom of the sprite so the handle is the placement
     // point — the blade extends upward from the knight's hand.
     w.anchor.set(0.5, 0.95);
-    // Added after the player sprite so it renders on top of him.
-    this.playerLayer.addChild(w);
+    return w;
+  }
+
+  private spawnPlayerWeapon() {
+    const w = this.spawnWeaponSprite();
+    if (!w) return;
+    this.spriteLayer.addChild(w);
     this.playerWeapon = w;
   }
 
@@ -419,17 +645,31 @@ export class DungeonRenderer {
 
   private syncPlayerWeapon() {
     if (!this.playerWeapon || !this.playerSprite || !this.lastSnapshot) return;
-    const p = this.playerSprite.sprite;
-    const facing = p.scale.x >= 0 ? 1 : -1;
+    this.syncWeaponFor(
+      this.playerSprite,
+      this.playerWeapon,
+      this.lastSnapshot.player.id,
+    );
+  }
+
+  /// Shared by local player and teammates so the swing/block/fumble poses
+  /// (windup → strike → recover) animate uniformly. Without this, the
+  /// teammate body lunges from applyAnimFrame but their sword stays in
+  /// idle bob, which reads as "they move but never swing" during combat.
+  private syncWeaponFor(
+    owner: TrackedSprite,
+    weapon: Sprite,
+    ownerId: string,
+  ) {
+    const s = owner.sprite;
+    const facing = s.scale.x >= 0 ? 1 : -1;
     const now = performance.now();
 
-    // Pick a pose: combat anim if player is involved, else gentle idle bob.
     let pose = ZERO_POSE;
     let bob = 0;
     if (this.activeAnim) {
-      const pid = this.lastSnapshot.player.id;
-      const isActor = this.activeAnim.actorId === pid;
-      const isTarget = this.activeAnim.targetId === pid;
+      const isActor = this.activeAnim.actorId === ownerId;
+      const isTarget = this.activeAnim.targetId === ownerId;
       if (isActor || isTarget) {
         const k = Math.min(
           1,
@@ -443,17 +683,15 @@ export class DungeonRenderer {
       bob = idleBob(now);
     }
 
-    this.playerWeapon.x =
-      p.x + (DungeonRenderer.WEAPON_OFFSET_X + pose.dx) * facing;
-    this.playerWeapon.y =
-      p.y - (DungeonRenderer.WEAPON_OFFSET_Y + pose.dy) - bob;
-    this.playerWeapon.scale.x = facing;
+    weapon.x = s.x + (DungeonRenderer.WEAPON_OFFSET_X + pose.dx) * facing;
+    weapon.y = s.y - (DungeonRenderer.WEAPON_OFFSET_Y + pose.dy) - bob;
+    weapon.scale.x = facing;
     // Rotation is unmirrored — Pixi's scale.x = -1 already mirrors the
     // rotation visually, so the same rotation value reads as "backward
-    // relative to facing" regardless of which direction the player faces.
-    this.playerWeapon.rotation = pose.rotation;
+    // relative to facing" regardless of which direction the owner faces.
+    weapon.rotation = pose.rotation;
     // Mirror tint so combat hit-flashes affect the weapon too.
-    this.playerWeapon.tint = p.tint;
+    weapon.tint = s.tint;
   }
 
   private weaponPoseForCombat(
@@ -531,7 +769,17 @@ export class DungeonRenderer {
       if (!tex) return null;
       const sprite = new Sprite(tex);
       sprite.anchor.set(0.5, 0.5);
-      return { sprite, tween: null, characterName: null, currentAnim: null };
+      return { sprite, tween: null, characterName: null, currentAnim: null, baseTint: 0xffffff };
+    }
+    if (e.type === EntityType.Corpse) {
+      // Reuse the manifest's "Corpse" item texture (mapped to the skull
+      // frame) — center-anchored, untinted, no animation. Drawn at the body
+      // of the floor so survivors and enemies walk *over* it.
+      const tex = this.assets.itemTexture("Corpse");
+      if (!tex) return null;
+      const sprite = new Sprite(tex);
+      sprite.anchor.set(0.5, 0.5);
+      return { sprite, tween: null, characterName: null, currentAnim: null, baseTint: 0xffffff };
     }
     return this.spawnCharacter(e.name);
   }
@@ -551,6 +799,7 @@ export class DungeonRenderer {
       tween: null,
       characterName: name,
       currentAnim: "idle",
+      baseTint: 0xffffff,
     };
   }
 
@@ -570,17 +819,97 @@ export class DungeonRenderer {
 
   private tick = () => {
     const now = performance.now();
+
+    // 1) Advance positions: tile tweens first, then any combat-anim lunge or
+    //    sidestep on top. Doing combat anim *before* the derived-state writes
+    //    below means labels and weapons follow the lunge in real time rather
+    //    than lagging by one frame.
+    for (const tracked of this.entitySprites.values()) this.advanceTween(tracked, now);
+    if (this.playerSprite) this.advanceTween(this.playerSprite, now);
+    for (const op of this.otherPlayerSprites.values()) this.advanceTween(op.tracked, now);
+    this.advanceCombatAnim(now);
+    // After the anim queue drains, drop any entity sprite that's no longer in
+    // the latest snapshot. Snapshot-time culling defers when the queue still
+    // references a sprite (so the killing-blow anim has something to swing
+    // at), and without this pass a dead enemy / dropped item would linger
+    // until the next *unrelated* server broadcast.
+    if (!this.activeAnim && this.animQueue.length === 0) {
+      this.cullDeferredEntities();
+    }
+
+    // 2) Derived state: zIndex from anchored Y, labels above their owner,
+    //    teammate weapons positioned at the body. Local-player weapon goes
+    //    through syncPlayerWeapon which also handles combat-driven poses.
     for (const tracked of this.entitySprites.values()) {
-      this.advanceTween(tracked, now);
+      tracked.sprite.zIndex = tracked.sprite.y;
     }
     if (this.playerSprite) {
-      this.advanceTween(this.playerSprite, now);
+      this.playerSprite.sprite.zIndex = this.playerSprite.sprite.y;
     }
-    this.advanceCombatAnim(now);
+    for (const [id, op] of this.otherPlayerSprites.entries()) {
+      op.tracked.sprite.zIndex = op.tracked.sprite.y;
+      op.label.x = op.tracked.sprite.x;
+      op.label.y = op.tracked.sprite.y - TILE_SIZE - LABEL_OFFSET_PX;
+      if (op.weapon) {
+        // Combat-aware pose, same path the local player uses — so a teammate
+        // who's the actor of an active anim swings their sword instead of
+        // riding the body's lunge with a static idle bob.
+        this.syncWeaponFor(op.tracked, op.weapon, id);
+        op.weapon.zIndex = op.tracked.sprite.y;
+        const opSnap = this.findOtherPlayer(op.tracked);
+        op.weapon.visible =
+          !op.isDead && !this.isBehindDoor(opSnap?.x, opSnap?.y);
+      }
+    }
     this.syncPlayerWeapon();
-    // Camera last so shake (Crit) is applied on top of the centered position.
+    const snap = this.lastSnapshot;
+    const localDead = (snap?.player.hp ?? 1) <= 0;
+    if (this.playerSprite) {
+      // Mirror the teammate-hide-when-dead rule for the local player so the
+      // corpse skull at the death tile is the only thing visible there. The
+      // death banner / mode=Resolution still drives the HUD overlay.
+      this.playerSprite.sprite.visible = !localDead;
+    }
+    if (this.playerWeapon && this.playerSprite) {
+      this.playerWeapon.zIndex = this.playerSprite.sprite.y;
+      this.playerWeapon.visible =
+        !localDead && !this.isBehindDoor(snap?.player.x, snap?.player.y);
+    }
+
+    // 3) Camera last so shake (Crit) is applied on top of the centered position.
     if (this.playerSprite) this.centerCameraOnPlayer();
   };
+
+  /// Returns true when the tile directly south of (x, y) is a door — i.e. the
+  /// player at (x, y) is standing one row north of a door whose 32-px-tall
+  /// sprite extends up into their row. Used to hide weapons whose blade would
+  /// otherwise poke above the door's top edge.
+  private isBehindDoor(x: number | undefined, y: number | undefined): boolean {
+    if (x === undefined || y === undefined) return false;
+    const snap = this.lastSnapshot;
+    if (!snap) return false;
+    const { width, height, tiles } = snap.floor;
+    const sy = y + 1;
+    if (sy < 0 || sy >= height) return false;
+    if (x < 0 || x >= width) return false;
+    const t = tiles[sy * width + x] as TileType;
+    return (
+      t === TileType.Door ||
+      t === TileType.OpenDoor ||
+      t === TileType.LockedDoor
+    );
+  }
+
+  private findOtherPlayer(tracked: TrackedSprite) {
+    const snap = this.lastSnapshot;
+    if (!snap) return undefined;
+    for (const [id, entry] of this.otherPlayerSprites.entries()) {
+      if (entry.tracked === tracked) {
+        return snap.otherPlayers.find((p) => p.id === id);
+      }
+    }
+    return undefined;
+  }
 
   private advanceTween(t: TrackedSprite, now: number) {
     const tw = t.tween;
@@ -622,35 +951,95 @@ export class DungeonRenderer {
     snapshot: GameStateSnapshotDto,
     snap: boolean,
   ) {
-    const combat = snapshot.combat;
-    if (!combat) {
+    // Floor / session change: throw away every watermark and any in-flight
+    // anim. Combats that lived on the old floor are gone; new ones start
+    // counting from zero.
+    if (snap) {
       this.resetCombatAnim();
-      this.hadCombat = false;
-      return;
+      this.combatWatermarks.clear();
     }
-    // Reset on snap or when combat transitions from inactive → active so
-    // a fresh fight starts counting events from zero.
-    if (snap || !this.hadCombat) this.resetCombatAnim();
-    this.hadCombat = true;
-    let n = 0;
-    for (const round of combat.rounds) {
-      for (const evt of round.events) {
-        if (
-          n >= this.seenEventCount &&
-          this.shouldAnimate(evt.kind) &&
-          evt.actorId &&
-          evt.targetId
-        ) {
-          this.animQueue.push({
-            kind: evt.kind,
-            actorId: evt.actorId,
-            targetId: evt.targetId,
-          });
+
+    // Collect the combats whose events should drive renderer anims. The
+    // viewer's own combat (when they're a participant) and every ambient
+    // combat on their floor share the same animation pipeline; the only
+    // thing the CombatLog UI consumes separately is snapshot.combat.
+    const sources: CombatLogDto[] = [];
+    if (snapshot.combat) sources.push(snapshot.combat);
+    for (const c of snapshot.ambientCombats) sources.push(c);
+
+    // TEMP DEBUG — verify ambient combat path is delivering events.
+    if (snapshot.ambientCombats.length > 0 || snapshot.combat) {
+      const summary = sources.map((c) => ({
+        id: c.id?.slice(0, 8) ?? "(no id)",
+        rounds: c.rounds.length,
+        events: c.rounds.reduce((n, r) => n + r.events.length, 0),
+        animatableEvents: c.rounds.reduce(
+          (n, r) =>
+            n +
+            r.events.filter(
+              (e) => this.shouldAnimate(e.kind) && e.actorId && e.targetId,
+            ).length,
+          0,
+        ),
+      }));
+      console.debug(
+        "[combat-anim] sources=",
+        sources.length,
+        "ambient=",
+        snapshot.ambientCombats.length,
+        "watermarks=",
+        Object.fromEntries(this.combatWatermarks),
+        "detail=",
+        summary,
+      );
+    }
+
+    const seen = new Set<string>();
+    for (const combat of sources) {
+      seen.add(combat.id);
+      const watermark = this.combatWatermarks.get(combat.id) ?? 0;
+      let n = 0;
+      let pushed = 0;
+      for (const round of combat.rounds) {
+        for (const evt of round.events) {
+          if (
+            n >= watermark &&
+            this.shouldAnimate(evt.kind) &&
+            evt.actorId &&
+            evt.targetId
+          ) {
+            this.animQueue.push({
+              kind: evt.kind,
+              actorId: evt.actorId,
+              targetId: evt.targetId,
+            });
+            pushed++;
+          }
+          n++;
         }
-        n++;
       }
+      if (pushed > 0) {
+        console.debug(
+          "[combat-anim] pushed",
+          pushed,
+          "events for combat",
+          combat.id.slice(0, 8),
+          "(watermark",
+          watermark,
+          "→",
+          n,
+          ")",
+        );
+      }
+      this.combatWatermarks.set(combat.id, n);
     }
-    this.seenEventCount = n;
+
+    // Drop watermarks for combats that no longer appear in the snapshot —
+    // they've ended (or moved off-floor) and shouldn't keep stale entries
+    // around forever.
+    for (const id of [...this.combatWatermarks.keys()]) {
+      if (!seen.has(id)) this.combatWatermarks.delete(id);
+    }
   }
 
   private shouldAnimate(kind: CombatEventKind): boolean {
@@ -667,7 +1056,6 @@ export class DungeonRenderer {
     if (this.activeAnim) this.finalizeAnim(this.activeAnim);
     this.activeAnim = null;
     this.animQueue = [];
-    this.seenEventCount = 0;
     this.cameraShakeUntil = 0;
   }
 
@@ -675,7 +1063,11 @@ export class DungeonRenderer {
     if (this.lastSnapshot && id === this.lastSnapshot.player.id) {
       return this.playerSprite;
     }
-    return this.entitySprites.get(id) ?? null;
+    const ent = this.entitySprites.get(id);
+    if (ent) return ent;
+    const op = this.otherPlayerSprites.get(id);
+    if (op) return op.tracked;
+    return null;
   }
 
   private advanceCombatAnim(now: number) {
@@ -697,7 +1089,27 @@ export class DungeonRenderer {
       const pending = this.animQueue.shift()!;
       const actor = this.findById(pending.actorId);
       const target = this.findById(pending.targetId);
-      if (!actor || !target) continue;
+      if (!actor || !target) {
+        console.debug(
+          "[combat-anim] skip event — missing sprite. kind=",
+          pending.kind,
+          "actor=",
+          pending.actorId.slice(0, 8),
+          actor ? "OK" : "MISSING",
+          "target=",
+          pending.targetId.slice(0, 8),
+          target ? "OK" : "MISSING",
+        );
+        continue;
+      }
+      console.debug(
+        "[combat-anim] start kind=",
+        pending.kind,
+        "actor=",
+        pending.actorId.slice(0, 8),
+        "target=",
+        pending.targetId.slice(0, 8),
+      );
       const dx = target.sprite.x - actor.sprite.x;
       const dy = target.sprite.y - actor.sprite.y;
       const len = Math.hypot(dx, dy);
@@ -725,13 +1137,15 @@ export class DungeonRenderer {
   private applyAnimFrame(a: ActiveAnim, k: number) {
     // sin(πk): 0 → 1 (peak at k=0.5) → 0. Smooth out-and-back curve.
     const peak = Math.sin(Math.PI * k);
-    // Reset to origin so successive frames don't accumulate.
+    // Reset to origin + base tint each frame so successive frames don't
+    // accumulate, and a tinted teammate fades back through their natural
+    // colour rather than washing through pure white.
     a.actor.sprite.x = a.actorOriginX;
     a.actor.sprite.y = a.actorOriginY;
     a.target.sprite.x = a.targetOriginX;
     a.target.sprite.y = a.targetOriginY;
-    a.actor.sprite.tint = 0xffffff;
-    a.target.sprite.tint = 0xffffff;
+    a.actor.sprite.tint = a.actor.baseTint;
+    a.target.sprite.tint = a.target.baseTint;
 
     const lunge = TILE_SIZE * LUNGE_FRACTION;
     switch (a.kind) {
@@ -740,7 +1154,7 @@ export class DungeonRenderer {
         a.actor.sprite.x += a.unitDx * lunge * peak;
         a.actor.sprite.y += a.unitDy * lunge * peak;
         const tint = a.kind === CombatEventKind.Crit ? CRIT_TINT : HIT_TINT;
-        a.target.sprite.tint = blendColor(0xffffff, tint, peak);
+        a.target.sprite.tint = blendColor(a.target.baseTint, tint, peak);
         break;
       }
       case CombatEventKind.Miss: {
@@ -761,7 +1175,7 @@ export class DungeonRenderer {
         break;
       }
       case CombatEventKind.Heal: {
-        a.target.sprite.tint = blendColor(0xffffff, HEAL_TINT, peak);
+        a.target.sprite.tint = blendColor(a.target.baseTint, HEAL_TINT, peak);
         break;
       }
     }
@@ -772,8 +1186,8 @@ export class DungeonRenderer {
     a.actor.sprite.y = a.actorOriginY;
     a.target.sprite.x = a.targetOriginX;
     a.target.sprite.y = a.targetOriginY;
-    a.actor.sprite.tint = 0xffffff;
-    a.target.sprite.tint = 0xffffff;
+    a.actor.sprite.tint = a.actor.baseTint;
+    a.target.sprite.tint = a.target.baseTint;
   }
 
   private startCameraShake(magnitude: number, durationMs: number) {
@@ -789,6 +1203,8 @@ export class DungeonRenderer {
       this.app = null;
     }
     this.entitySprites.clear();
+    this.otherPlayerSprites.clear();
+    this.doorSprites.clear();
     this.playerSprite = null;
     this.playerWeapon = null;
   }

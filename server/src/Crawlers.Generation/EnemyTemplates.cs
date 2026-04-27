@@ -29,7 +29,7 @@ public static class EnemyTemplates
         State = EntityState.Alive,
         Stats = new EntityStats
         {
-            Hp = 8, MaxHp = 8,
+            Hp = 16, MaxHp = 16,
             Ac = 11,
             AttackMod = 2,
             Damage = new DiceRoll(1, 6, 0),
@@ -50,7 +50,7 @@ public static class EnemyTemplates
         State = EntityState.Alive,
         Stats = new EntityStats
         {
-            Hp = 5, MaxHp = 5,
+            Hp = 12, MaxHp = 12,
             Ac = 13,
             AttackMod = 3,
             Damage = new DiceRoll(1, 4, 0),
@@ -71,7 +71,7 @@ public static class EnemyTemplates
         State = EntityState.Alive,
         Stats = new EntityStats
         {
-            Hp = 14, MaxHp = 14,
+            Hp = 28, MaxHp = 28,
             Ac = 10,
             AttackMod = 3,
             Damage = new DiceRoll(1, 8, 1),
@@ -92,7 +92,7 @@ public static class EnemyTemplates
         State = EntityState.Alive,
         Stats = new EntityStats
         {
-            Hp = 6, MaxHp = 9,
+            Hp = 1, MaxHp = 9,
             Ac = 9,
             AttackMod = 1,
             Damage = new DiceRoll(1, 4, 0),
@@ -113,7 +113,7 @@ public static class EnemyTemplates
         State = EntityState.Alive,
         Stats = new EntityStats
         {
-            Hp = 18, MaxHp = 22,
+            Hp = 44, MaxHp = 44,
             Ac = 11,
             AttackMod = 2,
             Damage = new DiceRoll(1, 8, 1),

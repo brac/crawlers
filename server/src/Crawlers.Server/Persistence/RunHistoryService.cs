@@ -20,23 +20,27 @@ public class RunHistoryService : IRunHistoryService
         _logger = logger;
     }
 
-    public async Task RecordDeathAsync(SessionState state, string? causeOfDeath, CancellationToken ct = default)
+    public async Task RecordDeathAsync(SessionState state, Guid playerId, string? causeOfDeath, CancellationToken ct = default)
     {
+        var player = state.GetPlayer(playerId);
+        if (player is null) return;
+        var floor = state.GetFloorFor(player);
+
         var entry = new RunHistoryEntry
         {
             Id = Guid.NewGuid(),
-            PlayerId = state.Player.Id,
+            PlayerId = player.Id,
             SessionId = state.Session.Id,
-            Seed = state.Floor.Seed,
+            Seed = floor.Seed,
             StartedAt = state.Session.CreatedAt,
             EndedAt = DateTimeOffset.UtcNow,
             Outcome = "died",
             CauseOfDeath = causeOfDeath,
-            DeepestFloor = state.Session.CurrentFloorNumber,
+            DeepestFloor = player.CurrentFloorNumber,
             EnemiesKilled = state.EnemiesKilled,
-            FinalHp = state.Player.Stats.Hp,
-            FinalMaxHp = state.Player.Stats.MaxHp,
-            InventoryCount = state.Player.Inventory.Count
+            FinalHp = player.Stats.Hp,
+            FinalMaxHp = player.Stats.MaxHp,
+            InventoryCount = player.Inventory.Count
         };
 
         using var scope = _scopeFactory.CreateScope();
@@ -45,7 +49,7 @@ public class RunHistoryService : IRunHistoryService
         await db.SaveChangesAsync(ct);
 
         _logger.LogInformation(
-            "Recorded run history {EntryId} for session {SessionId} (cause: {Cause}, kills: {Kills})",
-            entry.Id, state.Session.Id, causeOfDeath ?? "unknown", state.EnemiesKilled);
+            "Recorded run history {EntryId} for player {PlayerId} in session {SessionId} (cause: {Cause}, kills: {Kills})",
+            entry.Id, player.Id, state.Session.Id, causeOfDeath ?? "unknown", state.EnemiesKilled);
     }
 }

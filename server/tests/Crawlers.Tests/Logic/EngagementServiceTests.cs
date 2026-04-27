@@ -12,7 +12,7 @@ public class EngagementServiceTests
     public void Returns_null_when_no_enemies()
     {
         var state = BuildSession(playerAt: new Position(2, 2));
-        Assert.Null(new EngagementService().FindEngagement(state));
+        Assert.Null(new EngagementService().FindEngagement(state, state.PrimaryPlayer.Id));
     }
 
     [Fact]
@@ -21,7 +21,7 @@ public class EngagementServiceTests
         var state = BuildSession(playerAt: new Position(2, 2));
         var enemy = AddEnemy(state, new Position(3, 2));
 
-        var found = new EngagementService().FindEngagement(state);
+        var found = new EngagementService().FindEngagement(state, state.PrimaryPlayer.Id);
         Assert.NotNull(found);
         Assert.Equal(enemy.Id, found!.Id);
     }
@@ -31,10 +31,11 @@ public class EngagementServiceTests
     {
         var state = BuildSession(playerAt: new Position(2, 2));
         var enemy = AddEnemy(state, new Position(3, 2));
-        // Force-hide the enemy tile, simulating fog (e.g., wall in between).
-        state.Player.FogOfWar![enemy.Position.X, enemy.Position.Y] = VisibilityState.Hidden;
+        // Force-hide the enemy tile in the shared fog, simulating LOS broken
+        // by an intervening wall.
+        state.GetFog(1)![enemy.Position.X, enemy.Position.Y] = VisibilityState.Hidden;
 
-        Assert.Null(new EngagementService().FindEngagement(state));
+        Assert.Null(new EngagementService().FindEngagement(state, state.PrimaryPlayer.Id));
     }
 
     [Fact]
@@ -44,7 +45,7 @@ public class EngagementServiceTests
         var state = BuildSession(playerAt: new Position(2, 2), width: 20, height: 5);
         AddEnemy(state, new Position(2 + EngagementService.EngagementProximity + 1, 2));
 
-        Assert.Null(new EngagementService().FindEngagement(state));
+        Assert.Null(new EngagementService().FindEngagement(state, state.PrimaryPlayer.Id));
     }
 
     [Fact]
@@ -54,7 +55,7 @@ public class EngagementServiceTests
         var enemy = AddEnemy(state, new Position(3, 2));
         enemy.State = EntityState.Dead;
 
-        Assert.Null(new EngagementService().FindEngagement(state));
+        Assert.Null(new EngagementService().FindEngagement(state, state.PrimaryPlayer.Id));
     }
 
     private static SessionState BuildSession(Position playerAt, int width = 10, int height = 5)
@@ -69,49 +70,44 @@ public class EngagementServiceTests
         var floor = new Floor
         {
             Id = Guid.NewGuid(),
+            FloorNumber = 1,
             Width = width,
             Height = height,
             TileGrid = grid
         };
 
         var stats = new EntityStats { Hp = 10, MaxHp = 10, SightRadius = 5 };
-        var fog = new VisibilityState[width, height];
-        FieldOfView.Compute(floor, playerAt, stats.SightRadius, fog);
-
-        var session = new Session
+        var session = new Session { Id = Guid.NewGuid(), CreatedAt = DateTimeOffset.UtcNow };
+        var state = new SessionState(session);
+        state.AddFloor(floor);
+        state.AddPlayer(new Player
         {
             Id = Guid.NewGuid(),
-            PlayerId = Guid.NewGuid(),
-            FloorId = floor.Id,
-            Mode = GameMode.Exploration,
-            CreatedAt = DateTimeOffset.UtcNow
-        };
-        var player = new Player
-        {
-            Id = session.PlayerId,
             SessionId = session.Id,
             Position = playerAt,
             Stats = stats,
-            FogOfWar = fog
-        };
-        return new SessionState(session, floor, player);
+            CurrentFloorNumber = 1
+        });
+        FieldOfView.RecomputeForFloor(floor, state.GetFog(1)!, state.PlayersOnFloor(1));
+        return state;
     }
 
     private static Entity AddEnemy(SessionState state, Position p)
     {
+        var floor = state.GetFloorFor(state.PrimaryPlayer);
         var enemy = new Entity
         {
             Id = Guid.NewGuid(),
-            FloorId = state.Floor.Id,
+            FloorId = floor.Id,
             Type = EntityType.Enemy,
             Name = "Husk",
             Position = p,
             State = EntityState.Alive,
             Stats = new EntityStats { Hp = 8, MaxHp = 8, SightRadius = 4 }
         };
-        state.Floor.Entities.Add(enemy);
-        // Make sure FOV reflects this position as Visible if within range.
-        FieldOfView.Compute(state.Floor, state.Player.Position, state.Player.Stats.SightRadius, state.Player.FogOfWar!);
+        floor.Entities.Add(enemy);
+        // Refresh shared fog so the new entity's tile is Visible if in range.
+        FieldOfView.RecomputeForFloor(floor, state.GetFog(1)!, state.PlayersOnFloor(1));
         return enemy;
     }
 }

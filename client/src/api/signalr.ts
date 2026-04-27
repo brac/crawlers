@@ -21,13 +21,15 @@ export async function connect(): Promise<HubConnection> {
   return connection;
 }
 
-export async function joinNewSession(
+export async function joinSession(
   connection: HubConnection,
-  seed?: number,
+  sessionId: string,
+  playerId: string,
 ): Promise<GameStateSnapshotDto> {
   return connection.invoke<GameStateSnapshotDto>(
-    "JoinNewSession",
-    seed ?? null,
+    "JoinSession",
+    sessionId,
+    playerId,
   );
 }
 
@@ -53,6 +55,13 @@ export function invokeUseItem(
 
 export function descend(connection: HubConnection): Promise<void> {
   return connection.invoke("Descend");
+}
+
+export function setSpectatorTarget(
+  connection: HubConnection,
+  targetId: string,
+): Promise<void> {
+  return connection.invoke("SetSpectatorTarget", targetId);
 }
 
 export function onSnapshot(

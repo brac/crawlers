@@ -103,7 +103,7 @@ public class EntityPlacerTests
             e.Position.Equals(stairsDown!.Value) &&
             e.Name == "Big Slug");
         Assert.NotNull(bossOnStairs);
-        Assert.Equal(22, bossOnStairs!.Stats!.MaxHp);
+        Assert.Equal(44, bossOnStairs!.Stats!.MaxHp);
     }
 
     [Fact]

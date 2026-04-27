@@ -1,4 +1,5 @@
 using Crawlers.Server.Hubs;
+using Crawlers.Server.Lobbies;
 using Crawlers.Server.Logic;
 using Crawlers.Server.Persistence;
 using Crawlers.Server.Sessions;
@@ -7,9 +8,12 @@ using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<SessionManager>();
+builder.Services.AddSingleton<LobbyManager>();
+builder.Services.AddSingleton<SessionBroadcaster>();
 builder.Services.AddSingleton<MovementService>();
 builder.Services.AddSingleton<EngagementService>();
 builder.Services.AddSingleton<CombatService>();
+builder.Services.AddSingleton<RunEndService>();
 builder.Services.AddSingleton<CombatRunner>();
 builder.Services.AddSingleton<DescendService>();
 builder.Services.AddSignalR();
@@ -24,10 +28,12 @@ if (hasDb)
     builder.Services.AddDbContext<CrawlersDbContext>(options =>
         options.UseNpgsql(connectionString));
     builder.Services.AddSingleton<IRunHistoryService, RunHistoryService>();
+    builder.Services.AddSingleton<ICorpseService, CorpseService>();
 }
 else
 {
     builder.Services.AddSingleton<IRunHistoryService, NullRunHistoryService>();
+    builder.Services.AddSingleton<ICorpseService, NullCorpseService>();
 }
 
 const string GameCorsPolicy = "GameClient";
@@ -69,8 +75,9 @@ else
 
 app.UseCors(GameCorsPolicy);
 
-app.MapGet("/", () => "Crawlers server up. SignalR hub at /game.");
+app.MapGet("/", () => "Crawlers server up. SignalR hubs at /lobby and /game.");
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapHub<LobbyHub>("/lobby");
 app.MapHub<GameHub>("/game");
 
 app.Run();

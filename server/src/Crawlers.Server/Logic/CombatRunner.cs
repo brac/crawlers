@@ -1,86 +1,102 @@
 using System.Collections.Concurrent;
 using Crawlers.Domain.Enums;
-using Crawlers.Server.Contracts;
 using Crawlers.Server.Hubs;
 using Crawlers.Server.Persistence;
 using Crawlers.Server.Sessions;
-using Microsoft.AspNetCore.SignalR;
 
 namespace Crawlers.Server.Logic;
 
 /// <summary>
-/// Drives auto-battler combat for active sessions. One Task per fighting
-/// session, ticked on a fixed interval. All state mutation is funneled through
-/// SessionState.SyncRoot so the hub (Move/Flee) and this runner cannot race.
+/// Drives auto-battler combat for active multi-player combats. One Task per
+/// (sessionId, enemyId) — the enemy is the natural per-combat key since each
+/// enemy can only be in one combat at a time. All state mutation is funneled
+/// through SessionState.SyncRoot so the hub and this runner cannot race.
 /// </summary>
 public class CombatRunner
 {
     public const int RoundIntervalMs = 900;
 
-    private readonly IHubContext<GameHub, IGameClient> _hub;
+    private readonly SessionBroadcaster _broadcaster;
     private readonly SessionManager _sessions;
     private readonly CombatService _combat;
+    private readonly RunEndService _runEnd;
     private readonly IRunHistoryService _runHistory;
+    private readonly ICorpseService _corpses;
     private readonly ILogger<CombatRunner> _logger;
-    private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _active = new();
+    private readonly ConcurrentDictionary<(Guid sessionId, Guid enemyId), CancellationTokenSource> _active = new();
 
     public CombatRunner(
-        IHubContext<GameHub, IGameClient> hub,
+        SessionBroadcaster broadcaster,
         SessionManager sessions,
         CombatService combat,
+        RunEndService runEnd,
         IRunHistoryService runHistory,
+        ICorpseService corpses,
         ILogger<CombatRunner> logger)
     {
-        _hub = hub;
+        _broadcaster = broadcaster;
         _sessions = sessions;
         _combat = combat;
+        _runEnd = runEnd;
         _runHistory = runHistory;
+        _corpses = corpses;
         _logger = logger;
     }
 
-    public void Start(Guid sessionId)
+    public void Start(Guid sessionId, Guid enemyId)
     {
+        var key = (sessionId, enemyId);
         var cts = new CancellationTokenSource();
-        if (!_active.TryAdd(sessionId, cts))
+        if (!_active.TryAdd(key, cts))
         {
             cts.Dispose();
             return;
         }
-        _ = Task.Run(() => RunAsync(sessionId, cts.Token));
+        _ = Task.Run(() => RunAsync(sessionId, enemyId, cts.Token));
     }
 
-    public void RequestFlee(Guid sessionId)
+    public void RequestFlee(Guid sessionId, Guid playerId)
     {
         var state = _sessions.Get(sessionId);
         if (state is null) return;
         lock (state.SyncRoot)
         {
-            if (state.ActiveCombat is not null)
-                state.ActiveCombat.FleeRequested = true;
+            var combat = state.GetCombat(playerId);
+            if (combat is null) return;
+            if (!combat.HasParticipant(playerId)) return;
+            combat.FleeRequested.Add(playerId);
         }
     }
 
-    public void RequestUseItem(Guid sessionId, Guid itemId)
+    public void RequestUseItem(Guid sessionId, Guid playerId, Guid itemId)
     {
         var state = _sessions.Get(sessionId);
         if (state is null) return;
         lock (state.SyncRoot)
         {
-            if (state.ActiveCombat is not null)
-                state.ActiveCombat.UseItemRequested = itemId;
+            var combat = state.GetCombat(playerId);
+            if (combat is null) return;
+            if (!combat.HasParticipant(playerId)) return;
+            combat.UseItemRequested[playerId] = itemId;
         }
     }
 
-    public void Stop(Guid sessionId)
+    public void Stop(Guid sessionId, Guid enemyId)
     {
-        if (_active.TryRemove(sessionId, out var cts))
+        if (_active.TryRemove((sessionId, enemyId), out var cts))
         {
             cts.Cancel();
             cts.Dispose();
         }
     }
 
-    private async Task RunAsync(Guid sessionId, CancellationToken ct)
+    public void StopAllForSession(Guid sessionId)
+    {
+        var keys = _active.Keys.Where(k => k.sessionId == sessionId).ToList();
+        foreach (var k in keys) Stop(k.sessionId, k.enemyId);
+    }
+
+    private async Task RunAsync(Guid sessionId, Guid enemyId, CancellationToken ct)
     {
         var dice = new Dice();
         try
@@ -92,45 +108,68 @@ public class CombatRunner
                 var state = _sessions.Get(sessionId);
                 if (state is null) return;
 
-                CombatOutcome outcome;
-                GameStateSnapshotDto snapshot;
-                string? causeOfDeath = null;
+                CombatRoundResult result;
+                ActiveCombat? snapshotCombat;
+                RunOutcome? endedThisTick;
                 lock (state.SyncRoot)
                 {
-                    if (state.ActiveCombat is null || state.Session.Mode != GameMode.Combat)
-                        return;
+                    var combat = state.GetCombatByEnemy(enemyId);
+                    snapshotCombat = combat;
+                    if (combat is null) return;
 
-                    outcome = _combat.ProcessNextRound(state, dice);
-                    if (outcome != CombatOutcome.InProgress)
-                    {
-                        if (outcome == CombatOutcome.PlayerDied)
-                            causeOfDeath = ResolveCauseOfDeath(state);
-                        _combat.Finalize(state, outcome, dice);
-                    }
+                    result = _combat.ProcessNextRound(state, combat, dice);
 
-                    snapshot = SnapshotMapper.ToSnapshot(state);
+                    // Apply the run-end transition while the lock is held so
+                    // the snapshot built by the broadcast below already shows
+                    // the run summary on every client. Returns non-null only
+                    // on the tick the wipe (or future quit) flips state.
+                    endedThisTick = _runEnd.CheckAndApply(state);
                 }
 
-                await _hub.Clients.Group(sessionId.ToString()).ReceiveSnapshot(snapshot);
+                await _broadcaster.BroadcastAsync(state);
 
-                if (outcome == CombatOutcome.PlayerDied)
+                if (endedThisTick is RunOutcome runOutcome)
                 {
+                    _logger.LogInformation(
+                        "Run ended for session {SessionId} with outcome {Outcome}",
+                        sessionId, runOutcome);
+                }
+
+                // Persist deaths recorded this round. Run history is per-player
+                // so each death gets its own row, and a parallel corpses row
+                // captures the death position so the future continuation phase
+                // can query "what corpses are on floor N?" without a schema change.
+                foreach (var (pid, outcome) in result.ExitedThisRound)
+                {
+                    if (outcome != CombatOutcome.PlayerDied) continue;
+                    var cause = ResolveCauseOfDeath(state, snapshotCombat);
                     try
                     {
-                        await _runHistory.RecordDeathAsync(state, causeOfDeath, ct);
+                        await _runHistory.RecordDeathAsync(state, pid, cause, ct);
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex,
-                            "Failed to persist run history for session {SessionId}", sessionId);
+                            "Failed to persist run history for session {SessionId} player {PlayerId}",
+                            sessionId, pid);
+                    }
+                    try
+                    {
+                        await _corpses.RecordCorpseAsync(state, pid, cause, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex,
+                            "Failed to persist corpse for session {SessionId} player {PlayerId}",
+                            sessionId, pid);
                     }
                 }
 
-                if (outcome != CombatOutcome.InProgress)
+                if (result.Ended)
                 {
                     _logger.LogInformation(
-                        "Combat ended for session {SessionId}: {Outcome}",
-                        sessionId, outcome);
+                        "Combat ended for session {SessionId} enemy {EnemyId} (exits: {Exits})",
+                        sessionId, enemyId, result.ExitedThisRound.Count);
                     return;
                 }
             }
@@ -138,19 +177,21 @@ public class CombatRunner
         catch (OperationCanceledException) { /* expected on stop */ }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Combat runner for session {SessionId} failed", sessionId);
+            _logger.LogError(ex,
+                "Combat runner for session {SessionId} enemy {EnemyId} failed",
+                sessionId, enemyId);
         }
         finally
         {
-            _active.TryRemove(sessionId, out _);
+            _active.TryRemove((sessionId, enemyId), out _);
         }
     }
 
-    private static string? ResolveCauseOfDeath(SessionState state)
+    private static string? ResolveCauseOfDeath(SessionState state, ActiveCombat? combat)
     {
-        var enemyId = state.ActiveCombat?.EnemyId;
-        if (enemyId is null) return null;
-        var enemy = state.Floor.Entities.FirstOrDefault(e => e.Id == enemyId);
+        if (combat is null) return null;
+        var floor = state.GetFloor(combat.FloorNumber);
+        var enemy = floor?.Entities.FirstOrDefault(e => e.Id == combat.EnemyId);
         return enemy?.Name is { } name ? $"Slain by a {name}" : null;
     }
 }

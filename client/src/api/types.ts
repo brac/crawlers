@@ -47,6 +47,7 @@ export const EntityType = {
   Enemy: 0,
   Item: 1,
   Npc: 2,
+  Corpse: 3,
 } as const;
 export type EntityType = (typeof EntityType)[keyof typeof EntityType];
 
@@ -128,8 +129,59 @@ export interface CombatRoundDto {
 }
 
 export interface CombatLogDto {
+  // Stable id used by the renderer to maintain a per-combat event watermark.
+  id: string;
   outcome: CombatOutcome;
   rounds: CombatRoundDto[];
+}
+
+export interface OtherPlayerDto {
+  id: string;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  // True while this teammate is engaged in combat — the renderer shows a
+  // ⚔ suffix on their name so non-participants can see at a glance who's
+  // fighting.
+  inCombat: boolean;
+}
+
+export interface SpectatableTargetDto {
+  id: string;
+  floorNumber: number;
+  inCombat: boolean;
+}
+
+// Step 13 — terminal outcome stamped on the session once every player is in
+// Resolution (or, in the future, once a continuation-phase quit fires).
+export const RunOutcome = {
+  PartyWiped: 0,
+} as const;
+export type RunOutcome = (typeof RunOutcome)[keyof typeof RunOutcome];
+
+export interface RunSummaryPlayerDto {
+  playerId: string;
+  finalFloor: number;
+  deepestFloor: number;
+  finalHp: number;
+  finalMaxHp: number;
+  // False for every row in a PartyWiped run; reserved for future
+  // continuation-phase outcomes that leave some players alive.
+  survived: boolean;
+  causeOfDeath: string | null;
+  diedAt: string | null; // ISO 8601
+  deathX: number;
+  deathY: number;
+}
+
+export interface RunSummaryDto {
+  outcome: RunOutcome;
+  startedAt: string; // ISO 8601
+  endedAt: string; // ISO 8601
+  deepestFloor: number;
+  enemiesKilled: number;
+  players: RunSummaryPlayerDto[];
 }
 
 export interface GameStateSnapshotDto {
@@ -138,5 +190,50 @@ export interface GameStateSnapshotDto {
   floorNumber: number;
   floor: FloorSnapshotDto;
   player: PlayerSnapshotDto;
+  // Other players in the same session who are currently on the local
+  // player's floor. Empty in solo sessions; rendering lands in Step 4.
+  otherPlayers: OtherPlayerDto[];
   combat: CombatLogDto | null;
+  // Step 11 — spectator state. spectatorTargetId is set when a dead player
+  // is following a teammate; the snapshot's floor / position / combat are
+  // then the target's. spectatableTargets lists the live + connected
+  // teammates a dead player can pick from (empty for living players).
+  spectatorTargetId: string | null;
+  spectatableTargets: SpectatableTargetDto[];
+  // Other active combats on the viewer's floor that the viewer is NOT in.
+  // The renderer animates events from these so observers see teammate
+  // swings; the CombatLog UI ignores them.
+  ambientCombats: CombatLogDto[];
+  // Step 13 — populated once the run has ended; identical content for every
+  // viewer. Presence is the client's signal to render the end-of-run screen.
+  runSummary: RunSummaryDto | null;
+}
+
+export const LobbyStatus = {
+  Waiting: 0,
+  InGame: 1,
+} as const;
+export type LobbyStatus = (typeof LobbyStatus)[keyof typeof LobbyStatus];
+
+export interface LobbyMemberDto {
+  playerId: string;
+  isHost: boolean;
+  joinedAt: string; // ISO 8601
+}
+
+export interface LobbyDto {
+  id: string;
+  code: string;
+  hostPlayerId: string;
+  maxPlayers: number;
+  status: LobbyStatus;
+  // Set once the host clicks Start; null while Waiting. Late-joiners read
+  // this to know which session to connect to on /game.
+  sessionId: string | null;
+  members: LobbyMemberDto[];
+}
+
+export interface LobbyMembershipDto {
+  localPlayerId: string;
+  lobby: LobbyDto;
 }

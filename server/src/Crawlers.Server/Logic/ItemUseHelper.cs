@@ -1,6 +1,5 @@
 using Crawlers.Domain.Enums;
 using Crawlers.Domain.Models;
-using Crawlers.Server.Sessions;
 
 namespace Crawlers.Server.Logic;
 
@@ -15,19 +14,20 @@ namespace Crawlers.Server.Logic;
 /// </summary>
 public static class ItemUseHelper
 {
-    public static string? Apply(SessionState state, Item item)
+    public static string? Apply(Player player, Item item)
     {
+        var tag = player.Id.ToString()[..4].ToUpperInvariant();
         switch (item.Effect)
         {
             case ItemEffect.Heal:
             {
-                int newHp = Math.Min(state.Player.Stats.MaxHp, state.Player.Stats.Hp + item.EffectValue);
-                int healed = newHp - state.Player.Stats.Hp;
-                state.Player.Stats = state.Player.Stats with { Hp = newHp };
-                return $"You drink a {item.Name} and recover {healed} HP. ({newHp}/{state.Player.Stats.MaxHp})";
+                int newHp = Math.Min(player.Stats.MaxHp, player.Stats.Hp + item.EffectValue);
+                int healed = newHp - player.Stats.Hp;
+                player.Stats = player.Stats with { Hp = newHp };
+                return $"Player {tag} drinks a {item.Name} and recovers {healed} HP. ({newHp}/{player.Stats.MaxHp})";
             }
             default:
-                return $"You use a {item.Name}.";
+                return $"Player {tag} uses a {item.Name}.";
         }
     }
 }

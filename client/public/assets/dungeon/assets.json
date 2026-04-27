@@ -43,7 +43,8 @@
 
   "items": {
     "Healing Draught": { "atlas": "main", "frame": [288, 352, 16, 16], "spriteName": "flask_red" },
-    "Bone Charm":      { "atlas": "main", "frame": [288, 432, 16, 16], "spriteName": "skull" }
+    "Bone Charm":      { "atlas": "main", "frame": [288, 432, 16, 16], "spriteName": "skull" },
+    "Corpse":          { "atlas": "main", "frame": [288, 432, 16, 16], "spriteName": "skull" }
   },
 
   "characters": {

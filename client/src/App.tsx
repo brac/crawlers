@@ -1,229 +1,290 @@
 import { useEffect, useRef, useState } from "react";
 import type { HubConnection } from "@microsoft/signalr";
 import {
-  connect,
-  descend,
-  flee,
-  invokeUseItem,
-  joinNewSession,
-  move,
-  onSnapshot,
-} from "./api/signalr";
-import type { GameStateSnapshotDto } from "./api/types";
-import { GameMode, MoveDirection, TileType } from "./api/types";
+  connectLobby,
+  createRoom,
+  joinRoomByCode,
+  leaveRoom,
+  onGameStarting,
+  onLobbyUpdate,
+  startGame,
+} from "./api/lobby";
+import type { LobbyDto } from "./api/types";
+import { LobbyStatus } from "./api/types";
+import { Game } from "./Game";
 import { type AssetLibrary, loadAssets } from "./game/assets";
-import { DungeonView } from "./game/DungeonView";
-import { CombatLog } from "./ui/CombatLog";
-import { Hud } from "./ui/Hud";
-import { Inventory } from "./ui/Inventory";
-import { MobileControls } from "./ui/MobileControls";
+import { Lobby, type LobbyView } from "./ui/Lobby";
 import "./App.css";
 
-type Status =
-  | { kind: "idle" }
+type Phase =
   | { kind: "loading-assets" }
-  | { kind: "connecting" }
-  | { kind: "joining" }
-  | { kind: "ready" }
-  | { kind: "error"; message: string };
+  | { kind: "lobby-connecting" }
+  | { kind: "lobby-menu"; busy: boolean; error: string | null }
+  | {
+      kind: "lobby-room";
+      lobby: LobbyDto;
+      localPlayerId: string;
+      starting: boolean;
+      error: string | null;
+    }
+  | { kind: "in-game"; sessionId: string; localPlayerId: string }
+  | { kind: "fatal"; message: string };
 
-function statusLabel(s: Status): string {
-  switch (s.kind) {
-    case "idle":
-      return "Idle";
-    case "loading-assets":
-      return "Loading assets…";
-    case "connecting":
-      return "Connecting…";
-    case "joining":
-      return "Joining session…";
-    case "ready":
-      return "Connected";
-    case "error":
-      return `Error: ${s.message}`;
-  }
-}
-
-const KEY_TO_DIRECTION: Record<string, MoveDirection> = {
-  w: MoveDirection.North,
-  ArrowUp: MoveDirection.North,
-  s: MoveDirection.South,
-  ArrowDown: MoveDirection.South,
-  d: MoveDirection.East,
-  ArrowRight: MoveDirection.East,
-  a: MoveDirection.West,
-  ArrowLeft: MoveDirection.West,
+const ERROR_TEXT: Record<string, string> = {
+  NotFound: "Room not found.",
+  Full: "That room is full.",
+  AlreadyStarted: "That game has already started.",
+  AlreadyInLobby: "You're already in that room.",
+  NotHost: "Only the host can start the game.",
+  NotInLobby: "You're not in a room.",
 };
 
-export default function App() {
-  const [status, setStatus] = useState<Status>({ kind: "idle" });
-  const [snapshot, setSnapshot] = useState<GameStateSnapshotDto | null>(null);
-  const [assets, setAssets] = useState<AssetLibrary | null>(null);
-  const connectionRef = useRef<HubConnection | null>(null);
-  const latestSnapRef = useRef<GameStateSnapshotDto | null>(null);
+function mapLobbyError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  for (const code of Object.keys(ERROR_TEXT))
+    if (raw.includes(code)) return ERROR_TEXT[code];
+  return "Something went wrong. Please try again.";
+}
 
+export default function App() {
+  const [phase, setPhase] = useState<Phase>({ kind: "loading-assets" });
+  const [assets, setAssets] = useState<AssetLibrary | null>(null);
+  const lobbyConnRef = useRef<HubConnection | null>(null);
+  const phaseRef = useRef<Phase>(phase);
+
+  // Always go through this so phaseRef stays accurate between renders. The
+  // catch in handleStart checks the ref to decide whether to surface an error,
+  // and React's setState is async — without a synchronous ref bump, two state
+  // updates in the same tick (GameStarting handler vs the failed-invoke catch)
+  // race and the catch wins.
+  const setPhaseSync = (next: Phase) => {
+    phaseRef.current = next;
+    setPhase(next);
+  };
+
+  // Asset preload — runs once, independent of lobby/game lifecycle.
   useEffect(() => {
     let cancelled = false;
-    let unsubSnap: (() => void) | null = null;
-
     void (async () => {
       try {
-        setStatus({ kind: "loading-assets" });
         const lib = await loadAssets();
         if (cancelled) return;
         setAssets(lib);
-        setStatus({ kind: "connecting" });
-        const c = await connect();
-        connectionRef.current = c;
-        if (cancelled) {
-          await c.stop();
-          return;
-        }
-        unsubSnap = onSnapshot(c, (snap) => {
-          latestSnapRef.current = snap;
-          setSnapshot(snap);
-        });
-        setStatus({ kind: "joining" });
-        const initial = await joinNewSession(c);
-        if (cancelled) {
-          await c.stop();
-          return;
-        }
-        latestSnapRef.current = initial;
-        setSnapshot(initial);
-        setStatus({ kind: "ready" });
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : String(err);
-        setStatus({ kind: "error", message });
+        setPhaseSync({ kind: "fatal", message: `Failed to load assets: ${message}` });
       }
     })();
-
-    const handleKey = (e: KeyboardEvent) => {
-      const c = connectionRef.current;
-      if (!c) return;
-      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-
-      if (key === "f") {
-        e.preventDefault();
-        void flee(c).catch(() => {});
-        return;
-      }
-
-      if (key === ">" || key === ".") {
-        e.preventDefault();
-        void descend(c).catch(() => {});
-        return;
-      }
-
-      // 1-9 use the corresponding consumable in inventory. In Combat the
-      // server queues it for the next round; in Exploration it applies
-      // immediately. Disabled in Resolution (dead).
-      if (key >= "1" && key <= "9") {
-        const snap = latestSnapRef.current;
-        if (!snap || snap.mode === GameMode.Resolution) return;
-        const idx = parseInt(key, 10) - 1;
-        const consumables = snap.player.inventory.filter((i) => i.isConsumable);
-        const item = consumables[idx];
-        if (!item) return;
-        e.preventDefault();
-        void invokeUseItem(c, item.id).catch(() => {});
-        return;
-      }
-
-      const dir = KEY_TO_DIRECTION[key];
-      if (dir === undefined) return;
-      e.preventDefault();
-      void move(c, dir).catch(() => {});
-    };
-    window.addEventListener("keydown", handleKey);
-
     return () => {
       cancelled = true;
-      window.removeEventListener("keydown", handleKey);
-      unsubSnap?.();
-      void connectionRef.current?.stop();
-      connectionRef.current = null;
     };
   }, []);
 
-  const handleRestart = async () => {
-    const c = connectionRef.current;
-    if (!c) return;
+  // Lobby connection lifecycle. Fires once when assets are ready; tears down
+  // on unmount or when the GameStarting handler stops the connection itself
+  // (Game.tsx then owns the /game connection).
+  useEffect(() => {
+    if (!assets) return;
+
+    let cancelled = false;
+    setPhaseSync({ kind: "lobby-connecting" });
+
+    void (async () => {
+      try {
+        const c = await connectLobby();
+        // Same StrictMode caveat as Game.tsx: only assign to the ref *after*
+        // confirming this effect run wasn't cancelled, otherwise a stale
+        // mount can overwrite the live connection with a dead one.
+        if (cancelled) {
+          await c.stop();
+          return;
+        }
+        lobbyConnRef.current = c;
+
+        onLobbyUpdate(c, (lobby) => {
+          const cur = phaseRef.current;
+          if (cur.kind !== "lobby-room") return;
+          if (cur.lobby.id !== lobby.id) return;
+          setPhaseSync({ ...cur, lobby });
+        });
+
+        onGameStarting(c, (sessionId) => {
+          // Tear down the lobby connection — Game.tsx will open a fresh
+          // connection to /game on mount.
+          const cur = phaseRef.current;
+          const localPlayerId =
+            cur.kind === "lobby-room" ? cur.localPlayerId : "";
+          void lobbyConnRef.current?.stop();
+          lobbyConnRef.current = null;
+          setPhaseSync({ kind: "in-game", sessionId, localPlayerId });
+        });
+
+        setPhaseSync({ kind: "lobby-menu", busy: false, error: null });
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setPhaseSync({ kind: "fatal", message: `Lobby connection failed: ${message}` });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      void lobbyConnRef.current?.stop();
+      lobbyConnRef.current = null;
+    };
+  }, [assets]);
+
+  const handleCreate = async () => {
+    const c = lobbyConnRef.current;
+    if (!c || phaseRef.current.kind !== "lobby-menu") return;
+    setPhaseSync({ kind: "lobby-menu", busy: true, error: null });
     try {
-      setStatus({ kind: "joining" });
-      const next = await joinNewSession(c);
-      latestSnapRef.current = next;
-      setSnapshot(next);
-      setStatus({ kind: "ready" });
+      const result = await createRoom(c);
+      setPhaseSync({
+        kind: "lobby-room",
+        lobby: result.lobby,
+        localPlayerId: result.localPlayerId,
+        starting: false,
+        error: null,
+      });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus({ kind: "error", message });
+      setPhaseSync({ kind: "lobby-menu", busy: false, error: mapLobbyError(err) });
     }
   };
 
-  const showCombatLog =
-    snapshot?.combat &&
-    (snapshot.mode === GameMode.Combat ||
-      snapshot.mode === GameMode.Resolution ||
-      snapshot.combat.rounds.length > 0);
+  const handleJoin = async (code: string) => {
+    const c = lobbyConnRef.current;
+    if (!c || phaseRef.current.kind !== "lobby-menu") return;
+    setPhaseSync({ kind: "lobby-menu", busy: true, error: null });
+    try {
+      const result = await joinRoomByCode(c, code);
 
-  const itemsUsable = snapshot != null && snapshot.mode !== GameMode.Resolution;
+      // Late-join: lobby is already InGame and carries the session id, so we
+      // skip the lobby-room view and drop the joiner straight into /game.
+      if (
+        result.lobby.status === LobbyStatus.InGame &&
+        result.lobby.sessionId
+      ) {
+        void lobbyConnRef.current?.stop();
+        lobbyConnRef.current = null;
+        setPhaseSync({
+          kind: "in-game",
+          sessionId: result.lobby.sessionId,
+          localPlayerId: result.localPlayerId,
+        });
+        return;
+      }
 
-  const handleMobileMove = (dir: MoveDirection) => {
-    const c = connectionRef.current;
-    if (!c) return;
-    void move(c, dir).catch(() => {});
-  };
-  const handleMobileFlee = () => {
-    const c = connectionRef.current;
-    if (!c) return;
-    void flee(c).catch(() => {});
-  };
-  const handleMobileDescend = () => {
-    const c = connectionRef.current;
-    if (!c) return;
-    void descend(c).catch(() => {});
-  };
-  const handleUseItem = (itemId: string) => {
-    const c = connectionRef.current;
-    if (!c || !itemsUsable) return;
-    void invokeUseItem(c, itemId).catch(() => {});
+      setPhaseSync({
+        kind: "lobby-room",
+        lobby: result.lobby,
+        localPlayerId: result.localPlayerId,
+        starting: false,
+        error: null,
+      });
+    } catch (err) {
+      setPhaseSync({ kind: "lobby-menu", busy: false, error: mapLobbyError(err) });
+    }
   };
 
-  const onStairsDown = (() => {
-    if (!snapshot) return false;
-    const { width, tiles } = snapshot.floor;
-    const idx = snapshot.player.y * width + snapshot.player.x;
-    return tiles[idx] === TileType.StairsDown;
-  })();
+  const handleLeave = async () => {
+    const c = lobbyConnRef.current;
+    if (!c) return;
+    try {
+      await leaveRoom(c);
+    } catch {
+      // Ignore — server-side state is the source of truth and we're going
+      // back to the menu regardless.
+    }
+    setPhaseSync({ kind: "lobby-menu", busy: false, error: null });
+  };
+
+  const handleStart = async () => {
+    const c = lobbyConnRef.current;
+    const cur = phaseRef.current;
+    if (!c || cur.kind !== "lobby-room") return;
+    setPhaseSync({ ...cur, starting: true, error: null });
+    try {
+      await startGame(c);
+      // The actual transition to in-game happens when GameStarting arrives
+      // (sent to the whole group, including this caller).
+    } catch (err) {
+      // GameStarting often lands before the StartGame invocation ack — its
+      // handler stops the connection, which makes the still-pending invoke
+      // reject. If we've already transitioned to in-game, that rejection is
+      // expected; only surface an error if we're still in the lobby.
+      const now = phaseRef.current;
+      if (now.kind === "lobby-room") {
+        setPhaseSync({ ...now, starting: false, error: mapLobbyError(err) });
+      }
+    }
+  };
+
+  if (phase.kind === "fatal") {
+    return (
+      <div className="app">
+        <div className="lobby-screen">
+          <div className="lobby-card lobby-card-fatal">
+            <div className="lobby-title">Crawlers</div>
+            <div className="lobby-error">{phase.message}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (
+    phase.kind === "loading-assets" ||
+    phase.kind === "lobby-connecting" ||
+    !assets
+  ) {
+    const label =
+      phase.kind === "lobby-connecting" ? "Connecting…" : "Loading…";
+    return (
+      <div className="app">
+        <div className="lobby-screen">
+          <div className="lobby-card lobby-card-spinner">
+            <div className="lobby-title">CRAWLERS</div>
+            <div className="lobby-spinner-text">{label}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase.kind === "in-game") {
+    return (
+      <div className="app">
+        <Game
+          assets={assets}
+          sessionId={phase.sessionId}
+          localPlayerId={phase.localPlayerId}
+        />
+      </div>
+    );
+  }
+
+  const view: LobbyView =
+    phase.kind === "lobby-menu"
+      ? { kind: "menu", busy: phase.busy, error: phase.error }
+      : {
+          kind: "room",
+          lobby: phase.lobby,
+          localPlayerId: phase.localPlayerId,
+          starting: phase.starting,
+          error: phase.error,
+        };
 
   return (
     <div className="app">
-      <Hud
-        snapshot={snapshot}
-        status={statusLabel(status)}
-        onRestart={handleRestart}
-        onStairsDown={onStairsDown}
+      <Lobby
+        view={view}
+        onCreate={handleCreate}
+        onJoin={handleJoin}
+        onLeave={handleLeave}
+        onStart={handleStart}
       />
-      {assets && <DungeonView snapshot={snapshot} assets={assets} />}
-      {showCombatLog && snapshot?.combat && <CombatLog log={snapshot.combat} />}
-      {snapshot && (
-        <Inventory
-          items={snapshot.player.inventory}
-          usable={itemsUsable}
-          onUse={handleUseItem}
-        />
-      )}
-      {snapshot && (
-        <MobileControls
-          onMove={handleMobileMove}
-          onFlee={handleMobileFlee}
-          onDescend={handleMobileDescend}
-          showFlee={snapshot.mode === GameMode.Combat}
-          showDescend={onStairsDown}
-        />
-      )}
     </div>
   );
 }
