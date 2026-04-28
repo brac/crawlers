@@ -2,17 +2,18 @@
   "_comment": "Weapon catalogue — loaded at server startup, referenced by per-floor weaponLoot pools in floor-scaling.json. Names match keys under client assets.json > weapons; the client uses the entity name to look up the sprite.",
   "_axes": {
     "damage":         "NdM+K dice. Higher count/sides = higher base damage; the floor-level damageMultiplier on enemies does NOT apply to player weapons (those scale by player progression, not floor depth).",
-    "initiativeMod":  "Added to the wielder's initiative roll in combat. Knives are fast (+2..+3); heavy blades / axes are slow (-1..-2)."
+    "initiativeMod":  "Added to the wielder's initiative roll in combat. Knife is fastest (+5); Axe is slowest (-4)."
   },
+  "_design": "Each weapon sits on a speed/damage tradeoff curve: as damage rises, initiative drops. Knife is the fastest and weakest; Axe the slowest and hardest-hitting. Regular Sword is the starter — slightly off the Pareto frontier so chest drops feel like genuine upgrades, but unique on the +1 init slot. Avg damage progression: 2.5 → 3.5 → 5.5 → (4.5 starter) → 6.5 → 7.5 → 8.0 → 8.5 → 9.5.",
   "weapons": [
-    { "name": "Knife",         "damage": { "count": 1, "sides": 4, "modifier": 0 }, "initiativeMod":  3 },
-    { "name": "Rusty Sword",   "damage": { "count": 1, "sides": 6, "modifier": 0 }, "initiativeMod":  1 },
-    { "name": "Regular Sword", "damage": { "count": 1, "sides": 6, "modifier": 1 }, "initiativeMod":  1 },
-    { "name": "Knight Sword",  "damage": { "count": 1, "sides": 8, "modifier": 1 }, "initiativeMod":  0 },
-    { "name": "Anime Sword",   "damage": { "count": 1, "sides": 8, "modifier": 2 }, "initiativeMod":  0 },
-    { "name": "Katana",        "damage": { "count": 1, "sides": 8, "modifier": 1 }, "initiativeMod":  2 },
-    { "name": "Spear",         "damage": { "count": 1, "sides": 8, "modifier": 0 }, "initiativeMod":  0 },
-    { "name": "Duel Sword",    "damage": { "count": 1, "sides": 10, "modifier": 2 }, "initiativeMod": -1 },
-    { "name": "Axe",           "damage": { "count": 1, "sides": 10, "modifier": 3 }, "initiativeMod": -2 }
+    { "name": "Knife",         "damage": { "count": 1, "sides": 4,  "modifier": 0 }, "initiativeMod":  5 },
+    { "name": "Rusty Sword",   "damage": { "count": 1, "sides": 6,  "modifier": 0 }, "initiativeMod":  3 },
+    { "name": "Katana",        "damage": { "count": 1, "sides": 6,  "modifier": 2 }, "initiativeMod":  2 },
+    { "name": "Regular Sword", "damage": { "count": 1, "sides": 6,  "modifier": 1 }, "initiativeMod":  1 },
+    { "name": "Spear",         "damage": { "count": 1, "sides": 8,  "modifier": 2 }, "initiativeMod":  0 },
+    { "name": "Knight Sword",  "damage": { "count": 1, "sides": 10, "modifier": 2 }, "initiativeMod": -1 },
+    { "name": "Anime Sword",   "damage": { "count": 2, "sides": 6,  "modifier": 1 }, "initiativeMod": -2 },
+    { "name": "Duel Sword",    "damage": { "count": 1, "sides": 10, "modifier": 3 }, "initiativeMod": -3 },
+    { "name": "Axe",           "damage": { "count": 1, "sides": 12, "modifier": 3 }, "initiativeMod": -4 }
   ]
 }
