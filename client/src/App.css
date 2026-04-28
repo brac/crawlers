@@ -438,6 +438,147 @@
   font-style: italic;
 }
 
+/* Step 12 — world stats page. Wider than the lobby card so the stat
+   grid breathes; same dark / warm palette as the rest of the UI. */
+.world-stats-card {
+  background: rgba(10, 10, 10, 0.88);
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 28px 32px;
+  width: min(640px, 92vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+}
+
+.world-stats-subtitle {
+  color: #8a7a5a;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  font-style: italic;
+  text-align: center;
+  margin-top: -6px;
+}
+
+.world-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.world-stats-stat {
+  background: rgba(20, 16, 10, 0.6);
+  border: 1px solid #2a2218;
+  border-radius: 5px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.world-stats-stat-label {
+  color: #777;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.world-stats-stat-value {
+  color: #f2d49a;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.15;
+  word-break: break-word;
+}
+
+.world-stats-stat-sub {
+  color: #6a5a48;
+  font-size: 11px;
+  font-style: italic;
+}
+
+@media (max-width: 520px) {
+  .world-stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Step 12 — floor announcer. Drops in at the bottom-center of the
+   screen on floor change, holds, fades out. Subdued so it reads as
+   a voiceover, not a notification. */
+.floor-announcer {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 18;
+  background: rgba(10, 8, 6, 0.78);
+  border-top: 1px solid #5a4830;
+  border-bottom: 1px solid #5a4830;
+  padding: 10px 18px;
+  color: #d6c9b0;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  font-style: italic;
+  max-width: min(560px, 90vw);
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 600ms ease-in-out;
+}
+
+.floor-announcer.visible {
+  opacity: 1;
+}
+
+/* Step 5 — corpse tooltip. Floats above the canvas at the cursor /
+   tap point (page-absolute coords supplied by the renderer). Width is
+   capped + line-clamped so a long username can't push it offscreen.
+   `pointer-events: none` so it never swallows the next tap intended
+   for another corpse. translate(8, 8) keeps the tip below-and-right
+   of the cursor, then `translate(0, -100%)` flips it above the cursor
+   when there's no room (handled in JS later if needed; for now we
+   just live with bottom-right anchoring). */
+.corpse-tooltip {
+  position: fixed;
+  z-index: 25;
+  transform: translate(12px, 12px);
+  pointer-events: none;
+  background: rgba(15, 12, 8, 0.94);
+  border: 1px solid #5a4830;
+  border-radius: 4px;
+  padding: 8px 12px;
+  color: #d6c9b0;
+  font-size: 12px;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+  max-width: 220px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+}
+
+.corpse-tooltip-name {
+  color: #f2d49a;
+  font-weight: 600;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.corpse-tooltip-fell {
+  color: #b09680;
+}
+
+.corpse-tooltip-when {
+  color: #6a5a48;
+  font-size: 11px;
+  margin-top: 2px;
+  font-style: italic;
+}
+
 .spectator-banner {
   position: absolute;
   top: 16px;
@@ -624,6 +765,114 @@
   padding: 8px 12px;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.alt-mode-badge {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  padding: 3px 8px;
+  background: rgba(242, 193, 78, 0.92);
+  color: #1a1300;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+}
+
+.lobby-identity-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid #232323;
+  border-radius: 5px;
+  font-size: 13px;
+}
+
+.lobby-identity-label {
+  color: #777;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.lobby-identity-name {
+  color: #f2f2f2;
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lobby-link {
+  background: none;
+  border: none;
+  color: #f2c14e;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.lobby-link:disabled {
+  color: #555;
+  cursor: not-allowed;
+}
+
+.lobby-link:hover:not(:disabled) {
+  color: #ffd56a;
+}
+
+.lobby-alt-link {
+  margin-top: 4px;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #777;
+}
+
+.lobby-alt-link:hover:not(:disabled) {
+  color: #aaa;
+}
+
+.lobby-identity-blurb {
+  color: #999;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.lobby-identity-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lobby-identity-input {
+  appearance: none;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid #2a2a2a;
+  border-radius: 5px;
+  color: #f2f2f2;
+  font-size: 16px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.lobby-identity-input:focus {
+  outline: none;
+  border-color: #f2c14e;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.lobby-identity-input::placeholder {
+  color: #444;
 }
 
 .lobby-section-label {
@@ -1049,4 +1298,19 @@
 .run-summary-restart:hover {
   background: #ffd470;
   transform: translateY(-1px);
+}
+
+.run-summary-stats-link {
+  margin-top: 10px;
+  background: none;
+  border: none;
+  color: #b09680;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  align-self: center;
+}
+
+.run-summary-stats-link:hover {
+  color: #f2d49a;
 }

@@ -3,6 +3,7 @@ using Crawlers.Domain.Models;
 using Crawlers.Server.Logic;
 using Crawlers.Server.Sessions;
 using Xunit;
+using Crawlers.Tests.TestSupport;
 
 namespace Crawlers.Tests.Logic;
 
@@ -12,7 +13,7 @@ public class DescendServiceTests
     public void Rejects_when_not_standing_on_stairs_down()
     {
         var state = BuildExplorationState(seed: 100);
-        var svc = new DescendService();
+        var svc = new DescendService(TestWorld.Make(), TestWorld.MakeCorpses());
 
         // Default spawn is on stairs-up; not on stairs-down.
         Assert.False(svc.TryDescend(state, state.PrimaryPlayer.Id));
@@ -38,7 +39,7 @@ public class DescendServiceTests
         combat.ParticipantPlayerIds.Add(state.PrimaryPlayer.Id);
         state.SetCombat(state.PrimaryPlayer.Id, combat);
 
-        var svc = new DescendService();
+        var svc = new DescendService(TestWorld.Make(), TestWorld.MakeCorpses());
         Assert.False(svc.TryDescend(state, state.PrimaryPlayer.Id));
         Assert.Equal(1, state.PrimaryPlayer.CurrentFloorNumber);
     }
@@ -58,7 +59,7 @@ public class DescendServiceTests
         state.PrimaryPlayer.Position = stairsDown!.Value;
         var floor1Id = floor1.Id;
 
-        var svc = new DescendService();
+        var svc = new DescendService(TestWorld.Make(), TestWorld.MakeCorpses());
         Assert.True(svc.TryDescend(state, state.PrimaryPlayer.Id));
 
         Assert.Equal(2, state.PrimaryPlayer.CurrentFloorNumber);
@@ -95,7 +96,7 @@ public class DescendServiceTests
         a.PrimaryPlayer.Position = FindTile(a.GetFloorFor(a.PrimaryPlayer), TileType.StairsDown)!.Value;
         b.PrimaryPlayer.Position = FindTile(b.GetFloorFor(b.PrimaryPlayer), TileType.StairsDown)!.Value;
 
-        var svc = new DescendService();
+        var svc = new DescendService(TestWorld.Make(), TestWorld.MakeCorpses());
         Assert.True(svc.TryDescend(a, a.PrimaryPlayer.Id));
         Assert.True(svc.TryDescend(b, b.PrimaryPlayer.Id));
 
@@ -114,7 +115,7 @@ public class DescendServiceTests
         // Two-player session; both step onto floor 1's stairs-down and descend
         // back-to-back. Without the unoccupied-tile pick they'd both land on
         // floor 2's stairs-up.
-        var mgr = new SessionManager();
+        var mgr = new SessionManager(TestWorld.Make(), TestWorld.MakeCorpses());
         var starts = Enumerable.Range(0, 2)
             .Select(_ => new PlayerStartState
             {
@@ -122,7 +123,7 @@ public class DescendServiceTests
                 Stats = SessionManager.DefaultPlayerStats()
             })
             .ToList();
-        var state = mgr.CreateSession(starts, seed: 13);
+        var state = mgr.CreateSession(starts);
         var floor1 = state.GetFloor(1)!;
         var stairsDown = FindTile(floor1, TileType.StairsDown);
         Assert.True(stairsDown.HasValue);
@@ -130,7 +131,7 @@ public class DescendServiceTests
         // Move both to the stairs-down tile (one at a time — collision rule
         // would block them otherwise).
         state.Players[0].Position = stairsDown!.Value;
-        var svc = new DescendService();
+        var svc = new DescendService(TestWorld.Make(), TestWorld.MakeCorpses());
         Assert.True(svc.TryDescend(state, state.Players[0].Id));
 
         state.Players[1].Position = stairsDown.Value;
@@ -152,7 +153,7 @@ public class DescendServiceTests
 
         var floor1 = state.GetFloorFor(state.PrimaryPlayer);
         state.PrimaryPlayer.Position = FindTile(floor1, TileType.StairsDown)!.Value;
-        Assert.True(new DescendService().TryDescend(state, state.PrimaryPlayer.Id));
+        Assert.True(new DescendService(TestWorld.Make(), TestWorld.MakeCorpses()).TryDescend(state, state.PrimaryPlayer.Id));
 
         Assert.Equal(2, state.PrimaryPlayer.CurrentFloorNumber);
         Assert.Equal(2, state.PrimaryPlayer.DeepestFloorReached);
@@ -160,8 +161,8 @@ public class DescendServiceTests
 
     private static SessionState BuildExplorationState(int seed)
     {
-        var mgr = new SessionManager();
-        return mgr.CreateSoloSession(seed);
+        var mgr = new SessionManager(TestWorld.Make(seed), TestWorld.MakeCorpses());
+        return mgr.CreateSoloSession();
     }
 
     private static Position? FindTile(Floor floor, TileType type)

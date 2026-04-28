@@ -4,6 +4,7 @@ import { RunOutcome } from "../api/types";
 interface RunSummaryProps {
   summary: RunSummaryDto;
   localPlayerId: string;
+  onOpenStats: () => void;
 }
 
 const TITLE: Record<RunOutcome, string> = {
@@ -18,7 +19,7 @@ const SUBTITLE: Record<RunOutcome, string> = {
 /// player — living, dead spectating, reconnecting — receives identical
 /// content. The Restart button reloads the page (the simplest path back to
 /// the lobby; revisit when a "play again" lobby flow ships).
-export function RunSummary({ summary, localPlayerId }: RunSummaryProps) {
+export function RunSummary({ summary, localPlayerId, onOpenStats }: RunSummaryProps) {
   const duration = formatDuration(summary.startedAt, summary.endedAt);
   return (
     <div className="run-summary-overlay">
@@ -55,6 +56,13 @@ export function RunSummary({ summary, localPlayerId }: RunSummaryProps) {
         >
           Back to lobby
         </button>
+        <button
+          type="button"
+          className="run-summary-stats-link"
+          onClick={onOpenStats}
+        >
+          See the world stats →
+        </button>
       </div>
     </div>
   );
@@ -67,14 +75,13 @@ function PlayerRow({
   row: RunSummaryPlayerDto;
   isLocal: boolean;
 }) {
-  const tag = row.playerId.slice(0, 4).toUpperCase();
   const fate = row.survived
     ? "Survived"
     : (row.causeOfDeath ?? "Fallen in the dark");
   return (
     <>
       <div className="run-summary-row-name">
-        Player {tag}
+        {row.username}
         {isLocal ? " (you)" : ""}
       </div>
       <div className="run-summary-row-fate">{fate}</div>

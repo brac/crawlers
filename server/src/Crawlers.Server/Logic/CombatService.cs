@@ -342,22 +342,30 @@ public class CombatService
         player.CauseOfDeath = enemy.Name is { } name ? $"Slain by a {name}" : "Slain";
         exits.Add((player.Id, CombatOutcome.PlayerDied));
 
-        // Drop a corpse on the death tile so survivors can see where they
-        // fell (and so the future continuation phase can stand its corpse-run
-        // mechanic on top of this entity). State=Alive marks the corpse as
-        // "currently in the world" — the snapshot mapper filters dead-state
-        // entities (defeated enemies). Corpses don't block movement; the
-        // teammate-collision rule in MovementService only looks at Players.
+        // Drop a corpse near the death tile so survivors can see where they
+        // fell. CorpsePlacement.PickFreeTile scatters into a nearby walkable
+        // tile when the death tile already has a corpse (from a prior run
+        // hydrated onto this floor); the persisted row separately captures
+        // the true death tile, so the data layer stays honest. State=Alive
+        // marks the corpse as "currently in the world" — the snapshot mapper
+        // filters dead-state entities (defeated enemies). Corpses don't
+        // block movement; MovementService's collision rule only looks at
+        // living Players.
         var floor = state.GetFloorFor(player);
+        var displayPos = Crawlers.Server.Persistence.CorpsePlacement.PickFreeTile(
+            floor, player.Position, Random.Shared);
         floor.Entities.Add(new Entity
         {
             Id = Guid.NewGuid(),
             FloorId = floor.Id,
             Type = EntityType.Corpse,
             Name = "Corpse",
-            Position = player.Position,
+            Position = displayPos,
             State = EntityState.Alive,
-            PlayerId = player.Id
+            PlayerId = player.Id,
+            DiedAt = player.DiedAt,
+            Username = string.IsNullOrEmpty(player.Username) ? null : player.Username,
+            KillerType = enemy.Name
         });
     }
 

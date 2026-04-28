@@ -32,14 +32,25 @@ namespace Crawlers.Server.Persistence.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<int>("DeepestFloor")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset>("DiedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("FloorNumber")
                         .HasColumnType("integer");
 
+                    b.Property<string>("KillerType")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<Guid>("PlayerId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("PlayerUsername")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
 
                     b.Property<Guid>("SessionId")
                         .HasColumnType("uuid");
@@ -57,6 +68,88 @@ namespace Crawlers.Server.Persistence.Migrations
                     b.HasIndex("FloorNumber", "X", "Y");
 
                     b.ToTable("corpses", (string)null);
+                });
+
+            modelBuilder.Entity("Crawlers.Server.Persistence.FloorRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("BossDoorX")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("BossDoorY")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("BossRoomHeight")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("BossRoomWidth")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("BossRoomX")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("BossRoomY")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("FloorNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("GeneratedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RoomsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<int>("Seed")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("Tiles")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FloorNumber")
+                        .IsUnique();
+
+                    b.ToTable("floors", (string)null);
+                });
+
+            modelBuilder.Entity("Crawlers.Server.Persistence.PlayerRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LastSeenAt");
+
+                    b.ToTable("players", (string)null);
                 });
 
             modelBuilder.Entity("Crawlers.Server.Persistence.RunHistoryEntry", b =>

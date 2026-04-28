@@ -5,6 +5,7 @@ using Crawlers.Server.Logic;
 using Crawlers.Server.Sessions;
 using Xunit;
 using Xunit.Abstractions;
+using Crawlers.Tests.TestSupport;
 
 namespace Crawlers.Tests.Logic;
 
@@ -34,7 +35,7 @@ public class DoorBumpTests
         // Place the player one tile south of the door.
         var stats = new EntityStats { Hp = 20, MaxHp = 20, Ac = 12, AttackMod = 2, Damage = new DiceRoll(1,6,1), InitiativeMod = 0, Speed = 30, SightRadius = 5, StrMod = 1, DexMod = 1, ConMod = 1 };
         var session = new Session { Id = Guid.NewGuid(), CreatedAt = DateTimeOffset.UtcNow };
-        var state = new SessionState(session) { InitialSeed = seed };
+        var state = new SessionState(session);
         state.AddFloor(floor);
         var player = new Player {
             Id = Guid.NewGuid(),
@@ -98,7 +99,7 @@ public class DoorBumpTests
 
         var stats = new EntityStats { Hp = 20, MaxHp = 20, Ac = 12, AttackMod = 2, Damage = new DiceRoll(1, 6, 1), InitiativeMod = 0, Speed = 30, SightRadius = 5 };
         var session = new Session { Id = Guid.NewGuid(), CreatedAt = DateTimeOffset.UtcNow };
-        var state = new SessionState(session) { InitialSeed = 1 };
+        var state = new SessionState(session);
         state.AddFloor(floor);
 
         // A starts inside the boss room. B starts in the corridor below the door.

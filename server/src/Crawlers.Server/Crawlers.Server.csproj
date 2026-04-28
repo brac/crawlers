@@ -19,4 +19,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!-- Crawlers.Tests can reach internal types directly so we don't have to
+       widen the public API of helpers like FloorFlavorPicker (Step 12) just
+       to write a unit test against them. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Crawlers.Tests" />
+  </ItemGroup>
+
 </Project>

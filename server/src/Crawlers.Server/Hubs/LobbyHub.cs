@@ -1,6 +1,7 @@
 using Crawlers.Domain.Enums;
 using Crawlers.Server.Contracts;
 using Crawlers.Server.Lobbies;
+using Crawlers.Server.Persistence;
 using Crawlers.Server.Sessions;
 using Microsoft.AspNetCore.SignalR;
 
@@ -9,25 +10,58 @@ namespace Crawlers.Server.Hubs;
 public class LobbyHub : Hub<ILobbyClient>
 {
     private const string PlayerIdKey = "playerId";
+    private const string UsernameKey = "username";
     private const string LobbyIdKey = "lobbyId";
 
     private readonly LobbyManager _lobbies;
     private readonly SessionManager _sessions;
+    private readonly IPlayerIdentityService _identities;
     private readonly ILogger<LobbyHub> _logger;
 
-    public LobbyHub(LobbyManager lobbies, SessionManager sessions, ILogger<LobbyHub> logger)
+    public LobbyHub(
+        LobbyManager lobbies,
+        SessionManager sessions,
+        IPlayerIdentityService identities,
+        ILogger<LobbyHub> logger)
     {
         _lobbies = lobbies;
         _sessions = sessions;
+        _identities = identities;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Pre-lobby identity assertion. The client sends the UUID it stored in
+    /// localStorage on first visit (or generated this visit) plus the chosen
+    /// username. The hub upserts the persistent <c>players</c> row and stores
+    /// the (id, name) pair on the connection so subsequent CreateRoom /
+    /// JoinRoomByCode use them. Calling Identify a second time renames the
+    /// player — UUID is sticky, name is editable.
+    /// </summary>
+    public async Task Identify(Guid playerId, string username)
+    {
+        if (playerId == Guid.Empty)
+            throw new HubException("InvalidPlayerId");
+
+        var sanitized = SanitizeUsername(username);
+        if (sanitized is null)
+            throw new HubException("InvalidUsername");
+
+        Context.Items[PlayerIdKey] = playerId;
+        Context.Items[UsernameKey] = sanitized;
+
+        await _identities.IdentifyAsync(playerId, sanitized, Context.ConnectionAborted);
+
+        _logger.LogInformation(
+            "Player {PlayerId} identified as '{Username}'", playerId, sanitized);
     }
 
     public async Task<LobbyMembershipDto> CreateRoom()
     {
         await LeaveCurrentLobbyIfAny();
 
-        var playerId = EnsurePlayerId();
-        var state = _lobbies.CreateLobby(playerId, Context.ConnectionId);
+        var (playerId, username) = RequireIdentity();
+        var state = _lobbies.CreateLobby(playerId, username, Context.ConnectionId);
         Context.Items[LobbyIdKey] = state.Room.Id;
         await Groups.AddToGroupAsync(Context.ConnectionId, GroupName(state.Room.Id));
 
@@ -35,8 +69,8 @@ public class LobbyHub : Hub<ILobbyClient>
         lock (state.SyncRoot) dto = LobbyMapper.ToDto(state);
 
         _logger.LogInformation(
-            "Player {PlayerId} created lobby {LobbyId} (code {Code})",
-            playerId, state.Room.Id, state.Room.Code);
+            "Player {PlayerId} ('{Username}') created lobby {LobbyId} (code {Code})",
+            playerId, username, state.Room.Id, state.Room.Code);
 
         return new LobbyMembershipDto(playerId, dto);
     }
@@ -45,7 +79,7 @@ public class LobbyHub : Hub<ILobbyClient>
     {
         await LeaveCurrentLobbyIfAny();
 
-        var playerId = EnsurePlayerId();
+        var (playerId, username) = RequireIdentity();
 
         // Late-join: if the lobby has already started, the joiner is added
         // straight to the running session (spawned on floor 1 near stairs-up)
@@ -57,6 +91,7 @@ public class LobbyHub : Hub<ILobbyClient>
             var startState = new PlayerStartState
             {
                 PlayerId = playerId,
+                Username = username,
                 Stats = SessionManager.DefaultPlayerStats()
             };
             var newPlayer = _sessions.AddPlayerToSession(sessionId, startState);
@@ -72,13 +107,13 @@ public class LobbyHub : Hub<ILobbyClient>
             lock (existing.SyncRoot) lateDto = LobbyMapper.ToDto(existing);
 
             _logger.LogInformation(
-                "Player {PlayerId} late-joined session {SessionId} via lobby {LobbyId} (code {Code})",
-                playerId, sessionId, existing.Room.Id, existing.Room.Code);
+                "Player {PlayerId} ('{Username}') late-joined session {SessionId} via lobby {LobbyId} (code {Code})",
+                playerId, username, sessionId, existing.Room.Id, existing.Room.Code);
 
             return new LobbyMembershipDto(playerId, lateDto);
         }
 
-        var outcome = _lobbies.JoinByCode(code, playerId, Context.ConnectionId);
+        var outcome = _lobbies.JoinByCode(code, playerId, username, Context.ConnectionId);
         if (outcome.Result != LobbyJoinResult.Success || outcome.State is null)
         {
             _logger.LogInformation(
@@ -97,8 +132,8 @@ public class LobbyHub : Hub<ILobbyClient>
         await Clients.Group(GroupName(state.Room.Id)).ReceiveLobbyUpdate(dto);
 
         _logger.LogInformation(
-            "Player {PlayerId} joined lobby {LobbyId} (code {Code}, {Members} members)",
-            playerId, state.Room.Id, state.Room.Code, dto.Members.Count);
+            "Player {PlayerId} ('{Username}') joined lobby {LobbyId} (code {Code}, {Members} members)",
+            playerId, username, state.Room.Id, state.Room.Code, dto.Members.Count);
 
         return new LobbyMembershipDto(playerId, dto);
     }
@@ -126,6 +161,7 @@ public class LobbyHub : Hub<ILobbyClient>
                 .Select(m => new PlayerStartState
                 {
                     PlayerId = m.PlayerId,
+                    Username = m.Username,
                     Stats = SessionManager.DefaultPlayerStats()
                 })
                 .ToList();
@@ -177,12 +213,35 @@ public class LobbyHub : Hub<ILobbyClient>
             playerId, lobbyId, outcome.Result);
     }
 
-    private Guid EnsurePlayerId()
+    private (Guid PlayerId, string Username) RequireIdentity()
     {
-        if (Context.Items[PlayerIdKey] is Guid existing) return existing;
-        var fresh = Guid.NewGuid();
-        Context.Items[PlayerIdKey] = fresh;
-        return fresh;
+        if (Context.Items[PlayerIdKey] is not Guid playerId
+            || Context.Items[UsernameKey] is not string username)
+        {
+            throw new HubException("NotIdentified");
+        }
+        return (playerId, username);
+    }
+
+    /// <summary>
+    /// Trim, length-check, and strip control characters from the supplied
+    /// username. Returns null if the result is empty or too long. Validation
+    /// is permissive on character set — the only real bar is "non-empty
+    /// printable string under the cap" — but ASCII control characters and
+    /// the C0/C1 ranges get stripped so they can't sneak through into log
+    /// lines or the lobby roster.
+    /// </summary>
+    private static string? SanitizeUsername(string? raw)
+    {
+        if (raw is null) return null;
+        var trimmed = raw.Trim();
+        if (trimmed.Length < IdentityConstraints.UsernameMinLength) return null;
+        if (trimmed.Length > IdentityConstraints.UsernameMaxLength) return null;
+        foreach (var ch in trimmed)
+        {
+            if (char.IsControl(ch)) return null;
+        }
+        return trimmed;
     }
 
     private static string GroupName(Guid lobbyId) => $"lobby:{lobbyId}";

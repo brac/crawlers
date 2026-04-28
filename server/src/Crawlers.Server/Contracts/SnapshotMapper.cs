@@ -45,10 +45,15 @@ public static class SnapshotMapper
         var fog = state.GetFog(viewer.CurrentFloorNumber);
         var combat = state.GetCombat(viewer.Id);
 
+        // Step 10 — party-scoped live presence. `state` is the viewer's
+        // SessionState, which only holds players in this session (= this
+        // lobby's room). Two parties on the same canonical floor never
+        // appear in each other's OtherPlayers list. Their interactions
+        // are world-scoped only — corpses, heatmap — never live entities.
         var others = state.PlayersOnFloor(viewer.CurrentFloorNumber)
             .Where(p => p.Id != playerId)
             .Select(p => new OtherPlayerDto(
-                p.Id, p.Position.X, p.Position.Y,
+                p.Id, p.Username, p.Position.X, p.Position.Y,
                 p.Stats.Hp, p.Stats.MaxHp,
                 InCombat: p.Mode == GameMode.Combat))
             .ToList();
@@ -59,6 +64,7 @@ public static class SnapshotMapper
             ? ToPlayerSnapshot(player)
             : new PlayerSnapshotDto(
                 Id: player.Id,
+                Username: player.Username,
                 X: viewer.Position.X,
                 Y: viewer.Position.Y,
                 Hp: player.Stats.Hp,
@@ -78,7 +84,7 @@ public static class SnapshotMapper
                             && p.Mode != GameMode.Resolution
                             && state.GetConnection(p.Id) is not null)
                 .Select(p => new SpectatableTargetDto(
-                    p.Id, p.CurrentFloorNumber, p.Mode == GameMode.Combat))
+                    p.Id, p.Username, p.CurrentFloorNumber, p.Mode == GameMode.Combat))
                 .ToList();
         }
         else
@@ -105,7 +111,11 @@ public static class SnapshotMapper
             SessionId: state.Session.Id,
             Mode: player.Mode,
             FloorNumber: viewer.CurrentFloorNumber,
-            Floor: ToFloorSnapshot(floor, fog),
+            Floor: ToFloorSnapshot(
+                floor,
+                fog,
+                state.GetHeatmap(viewer.CurrentFloorNumber),
+                state.GetFloorFlavor(viewer.CurrentFloorNumber)),
             Player: playerDto,
             OtherPlayers: others,
             Combat: combat is null ? null : ToCombatLog(combat.Log),
@@ -129,6 +139,7 @@ public static class SnapshotMapper
         var players = state.Players
             .Select(p => new RunSummaryPlayerDto(
                 PlayerId: p.Id,
+                Username: p.Username,
                 FinalFloor: p.CurrentFloorNumber,
                 DeepestFloor: p.DeepestFloorReached,
                 FinalHp: p.Stats.Hp,
@@ -155,9 +166,16 @@ public static class SnapshotMapper
     }
 
     public static FloorSnapshotDto ToFloorSnapshot(Floor floor) =>
-        ToFloorSnapshot(floor, fog: null);
+        ToFloorSnapshot(floor, fog: null, heatmap: null, flavor: null);
 
-    public static FloorSnapshotDto ToFloorSnapshot(Floor floor, VisibilityState[,]? fog)
+    public static FloorSnapshotDto ToFloorSnapshot(Floor floor, VisibilityState[,]? fog) =>
+        ToFloorSnapshot(floor, fog, heatmap: null, flavor: null);
+
+    public static FloorSnapshotDto ToFloorSnapshot(
+        Floor floor,
+        VisibilityState[,]? fog,
+        IReadOnlyList<Crawlers.Server.Persistence.TileHeat>? heatmap,
+        string? flavor)
     {
         int n = floor.Width * floor.Height;
         var tiles = new int[n];
@@ -181,14 +199,21 @@ public static class SnapshotMapper
         var entities = floor.Entities
             .Where(e => e.State == EntityState.Alive)
             .Where(e => fog is null || fog[e.Position.X, e.Position.Y] == VisibilityState.Visible)
-            .Select(e => new EntityDto(e.Id, e.Type, e.Name ?? "", e.Position.X, e.Position.Y))
+            .Select(e => new EntityDto(
+                e.Id, e.Type, e.Name ?? "", e.Position.X, e.Position.Y,
+                e.DiedAt, e.Username, e.KillerType))
             .ToList();
 
-        return new FloorSnapshotDto(floor.Width, floor.Height, tiles, visibility, rooms, entities);
+        var heatDtos = heatmap is null
+            ? (IReadOnlyList<TileHeatDto>)Array.Empty<TileHeatDto>()
+            : heatmap.Select(h => new TileHeatDto(h.X, h.Y, h.Count)).ToList();
+
+        return new FloorSnapshotDto(floor.Width, floor.Height, tiles, visibility, rooms, entities, heatDtos, flavor);
     }
 
     public static PlayerSnapshotDto ToPlayerSnapshot(Player player) => new(
         player.Id,
+        player.Username,
         player.Position.X,
         player.Position.Y,
         player.Stats.Hp,

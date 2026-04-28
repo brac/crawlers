@@ -26,6 +26,7 @@ public record RunSummaryDto(
 /// </summary>
 public record RunSummaryPlayerDto(
     Guid PlayerId,
+    string Username,
     int FinalFloor,
     int DeepestFloor,
     int FinalHp,

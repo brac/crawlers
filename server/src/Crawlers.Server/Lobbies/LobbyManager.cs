@@ -36,7 +36,7 @@ public class LobbyManager
     public LobbyState? GetByPlayer(Guid playerId) =>
         _playerToLobby.TryGetValue(playerId, out var id) ? Get(id) : null;
 
-    public LobbyState CreateLobby(Guid hostPlayerId, string hostConnectionId)
+    public LobbyState CreateLobby(Guid hostPlayerId, string hostUsername, string hostConnectionId)
     {
         if (_playerToLobby.ContainsKey(hostPlayerId))
             throw new InvalidOperationException(
@@ -57,6 +57,7 @@ public class LobbyManager
         room.Members.Add(new LobbyMember
         {
             PlayerId = hostPlayerId,
+            Username = hostUsername,
             ConnectionId = hostConnectionId,
             JoinedAt = room.CreatedAt
         });
@@ -67,7 +68,7 @@ public class LobbyManager
         return state;
     }
 
-    public LobbyJoinOutcome JoinByCode(string code, Guid playerId, string connectionId)
+    public LobbyJoinOutcome JoinByCode(string code, Guid playerId, string username, string connectionId)
     {
         var normalized = LobbyCodeGenerator.Normalize(code);
         if (normalized is null) return new(LobbyJoinResult.NotFound, null);
@@ -86,6 +87,7 @@ public class LobbyManager
             state.Room.Members.Add(new LobbyMember
             {
                 PlayerId = playerId,
+                Username = username,
                 ConnectionId = connectionId,
                 JoinedAt = DateTimeOffset.UtcNow
             });

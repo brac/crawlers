@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { HubConnection } from "@microsoft/signalr";
 import {
   connect,
@@ -14,7 +14,10 @@ import type { GameStateSnapshotDto } from "./api/types";
 import { GameMode, MoveDirection, TileType } from "./api/types";
 import type { AssetLibrary } from "./game/assets";
 import { DungeonView } from "./game/DungeonView";
+import type { CorpseTooltipInfo } from "./game/DungeonRenderer";
 import { CombatLog } from "./ui/CombatLog";
+import { CorpseTooltip } from "./ui/CorpseTooltip";
+import { FloorAnnouncer } from "./ui/FloorAnnouncer";
 import { Hud } from "./ui/Hud";
 import { Inventory } from "./ui/Inventory";
 import { MobileControls } from "./ui/MobileControls";
@@ -55,13 +58,33 @@ interface GameProps {
   assets: AssetLibrary;
   sessionId: string;
   localPlayerId: string;
+  onOpenStats: () => void;
 }
 
-export function Game({ assets, sessionId, localPlayerId }: GameProps) {
+export function Game({ assets, sessionId, localPlayerId, onOpenStats }: GameProps) {
   const [status, setStatus] = useState<Status>({ kind: "connecting" });
   const [snapshot, setSnapshot] = useState<GameStateSnapshotDto | null>(null);
   const connectionRef = useRef<HubConnection | null>(null);
   const latestSnapRef = useRef<GameStateSnapshotDto | null>(null);
+  const [corpseTip, setCorpseTip] = useState<{
+    info: CorpseTooltipInfo;
+    clientXY: { x: number; y: number };
+  } | null>(null);
+
+  // Stable identity so DungeonView's effect doesn't reattach listeners on
+  // every snapshot update. Renderer fires this on hover / tap of a corpse;
+  // null clears (pointerout on desktop, tap-elsewhere on mobile via
+  // Safari's hover-on-tap simulation).
+  const handleCorpseHover = useCallback(
+    (info: CorpseTooltipInfo | null, clientXY: { x: number; y: number } | null) => {
+      if (!info || !clientXY) {
+        setCorpseTip(null);
+      } else {
+        setCorpseTip({ info, clientXY });
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -205,7 +228,16 @@ export function Game({ assets, sessionId, localPlayerId }: GameProps) {
           onStairsDown={onStairsDown}
         />
       )}
-      <DungeonView snapshot={snapshot} assets={assets} />
+      <DungeonView
+        snapshot={snapshot}
+        assets={assets}
+        onCorpseHover={handleCorpseHover}
+      />
+      <CorpseTooltip
+        info={corpseTip?.info ?? null}
+        clientXY={corpseTip?.clientXY ?? null}
+        floorNumber={snapshot?.floorNumber ?? 0}
+      />
       {!runOver && showCombatLog && snapshot?.combat && (
         <CombatLog log={snapshot.combat} />
       )}
@@ -225,6 +257,12 @@ export function Game({ assets, sessionId, localPlayerId }: GameProps) {
           showDescend={onStairsDown}
         />
       )}
+      {!runOver && snapshot && (
+        <FloorAnnouncer
+          floorNumber={snapshot.floorNumber}
+          flavor={snapshot.floor.flavor}
+        />
+      )}
       {!runOver && (
         <SpectatorOverlay snapshot={snapshot} onSpectate={handleSpectate} />
       )}
@@ -232,6 +270,7 @@ export function Game({ assets, sessionId, localPlayerId }: GameProps) {
         <RunSummary
           summary={snapshot.runSummary}
           localPlayerId={localPlayerId}
+          onOpenStats={onOpenStats}
         />
       )}
     </>

@@ -7,7 +7,34 @@ public class EntityPlacer
 {
     public const int DefaultEnemyCount = 7;
 
-    public void Place(Floor floor, Random rng, int enemyCount = DefaultEnemyCount)
+    /// <summary>
+    /// Mint-time pass: finalize the structural geometry of the floor (boss
+    /// room sealing, door carving, stairs-down repositioning) and stamp the
+    /// resulting <see cref="Floor.BossDoor"/> / <see cref="Floor.BossRoomBounds"/>
+    /// onto the floor. This pass mutates the tile grid permanently and is
+    /// what the persistent <c>floors</c> table snapshots — every session
+    /// reading that floor sees the same structure. <see cref="Floor.BossEntityId"/>
+    /// stays null here; it's set per-session in <see cref="PlaceEnemies"/>.
+    /// </summary>
+    public static void MintStructure(Floor floor)
+    {
+        var (doorPos, roomBounds) = DoorPlacer.FinalizeBossRoom(floor);
+        if (doorPos is not null && roomBounds is not null)
+        {
+            floor.BossDoor = doorPos;
+            floor.BossRoomBounds = roomBounds;
+        }
+    }
+
+    /// <summary>
+    /// Per-session pass: spawn enemies (including the boss on floor 1 if the
+    /// canonical structure has a boss room) onto a freshly-cloned floor that
+    /// has already been minted by <see cref="MintStructure"/>. Each call
+    /// stamps a new <see cref="Floor.BossEntityId"/> because the boss entity
+    /// itself is session-scoped — it dies, the door unlocks, and that's the
+    /// run's relationship with that boss.
+    /// </summary>
+    public void PlaceEnemies(Floor floor, Random rng, int enemyCount = DefaultEnemyCount)
     {
         if (floor.FloorNumber == 1)
         {
@@ -18,17 +45,24 @@ public class EntityPlacer
     }
 
     /// <summary>
-    /// Floor 1 layout: finalize the stairs-down room into a south-entry boss
-    /// chamber, place the BigSlug at the new (far-corner) stairs-down tile,
-    /// and scatter TinySlugs through the rest of the floor. The boss is
-    /// additive — it doesn't count toward <paramref name="enemyCount"/>.
+    /// Legacy entry point: structure + enemies in one call. Retained because
+    /// existing tests build floors end-to-end without going through the
+    /// world-mint pipeline. Production code (SessionManager, DescendService)
+    /// goes through <see cref="MintStructure"/> + <see cref="PlaceEnemies"/>.
+    /// </summary>
+    public void Place(Floor floor, Random rng, int enemyCount = DefaultEnemyCount)
+    {
+        MintStructure(floor);
+        PlaceEnemies(floor, rng, enemyCount);
+    }
+
+    /// <summary>
+    /// Floor 1 layout: place the BigSlug boss at the (already-finalized)
+    /// stairs-down tile and scatter TinySlugs through the rest of the floor.
+    /// The boss is additive — it doesn't count toward <paramref name="enemyCount"/>.
     /// </summary>
     private void PlaceFloorOne(Floor floor, Random rng, int enemyCount)
     {
-        // Reshape the boss room (single south door, stairs-down at far corner)
-        // BEFORE placing the boss so we know the correct boss tile.
-        var (doorPos, roomBounds) = DoorPlacer.FinalizeBossRoom(floor);
-
         var downTile = FindTile(floor, TileType.StairsDown);
         Entity? boss = null;
         if (downTile is { } down)
@@ -37,16 +71,14 @@ public class EntityPlacer
             floor.Entities.Add(boss);
         }
 
-        if (doorPos is not null && roomBounds is not null && boss is not null)
+        if (floor.BossDoor is not null && floor.BossRoomBounds is not null && boss is not null)
         {
-            floor.BossDoor = doorPos;
-            floor.BossRoomBounds = roomBounds;
             floor.BossEntityId = boss.Id;
         }
 
         var spawnRoom = FindSpawnRoom(floor);
-        var bossRoomId = roomBounds is not null
-            ? floor.Rooms.FirstOrDefault(r => r.Bounds.Equals(roomBounds.Value))?.Id
+        var bossRoomId = floor.BossRoomBounds is { } b
+            ? floor.Rooms.FirstOrDefault(r => r.Bounds.Equals(b))?.Id
             : null;
         // TinySlugs go in any room that isn't the spawn or boss room.
         var candidates = floor.Rooms
@@ -79,10 +111,6 @@ public class EntityPlacer
 
     private void PlaceDefault(Floor floor, Random rng, int enemyCount)
     {
-        // Every floor gets a closed door at the stairs-down room entrance.
-        // No lock trigger off floor 1 — player can bump-open and proceed.
-        DoorPlacer.FinalizeBossRoom(floor);
-
         var spawnRoom = FindSpawnRoom(floor);
         var candidates = spawnRoom is null
             ? floor.Rooms.ToList()

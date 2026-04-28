@@ -10,6 +10,7 @@ public static class LobbyMapper
         var members = room.Members
             .Select(m => new LobbyMemberDto(
                 PlayerId: m.PlayerId,
+                Username: m.Username,
                 IsHost: m.PlayerId == room.HostPlayerId,
                 JoinedAt: m.JoinedAt))
             .ToList();

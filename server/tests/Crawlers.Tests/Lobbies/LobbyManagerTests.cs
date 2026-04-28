@@ -11,16 +11,32 @@ public class LobbyManagerTests
         var mgr = new LobbyManager(new Random(1));
         var host = Guid.NewGuid();
 
-        var state = mgr.CreateLobby(host, "conn-host");
+        var state = mgr.CreateLobby(host, "Brac", "conn-host");
 
         Assert.Equal(host, state.Room.HostPlayerId);
         Assert.Equal(LobbyStatus.Waiting, state.Room.Status);
         Assert.Equal(LobbyManager.DefaultMaxPlayers, state.Room.MaxPlayers);
         Assert.Single(state.Room.Members);
         Assert.Equal(host, state.Room.Members[0].PlayerId);
+        Assert.Equal("Brac", state.Room.Members[0].Username);
         Assert.Equal("conn-host", state.Room.Members[0].ConnectionId);
         Assert.Equal(LobbyCodeGenerator.CodeLength, state.Room.Code.Length);
         Assert.Equal(state.Room.Code, LobbyCodeGenerator.Normalize(state.Room.Code));
+    }
+
+    [Fact]
+    public void JoinByCode_persists_username_on_member_record()
+    {
+        var mgr = new LobbyManager(new Random(1));
+        var host = Guid.NewGuid();
+        var state = mgr.CreateLobby(host, "Host", "conn-host");
+        var joiner = Guid.NewGuid();
+
+        var outcome = mgr.JoinByCode(state.Room.Code, joiner, "Joiner", "conn-joiner");
+
+        Assert.Equal(LobbyJoinResult.Success, outcome.Result);
+        Assert.Equal(2, state.Room.Members.Count);
+        Assert.Equal("Joiner", state.Room.Members[1].Username);
     }
 
     [Fact]
@@ -28,8 +44,8 @@ public class LobbyManagerTests
     {
         var mgr = new LobbyManager(new Random(1));
 
-        var a = mgr.CreateLobby(Guid.NewGuid(), "c1");
-        var b = mgr.CreateLobby(Guid.NewGuid(), "c2");
+        var a = mgr.CreateLobby(Guid.NewGuid(), "name", "c1");
+        var b = mgr.CreateLobby(Guid.NewGuid(), "name", "c2");
 
         Assert.NotEqual(a.Room.Id, b.Room.Id);
         Assert.NotEqual(a.Room.Code, b.Room.Code);
@@ -41,16 +57,16 @@ public class LobbyManagerTests
     {
         var mgr = new LobbyManager(new Random(1));
         var p = Guid.NewGuid();
-        mgr.CreateLobby(p, "c1");
+        mgr.CreateLobby(p, "name", "c1");
 
-        Assert.Throws<InvalidOperationException>(() => mgr.CreateLobby(p, "c2"));
+        Assert.Throws<InvalidOperationException>(() => mgr.CreateLobby(p, "name", "c2"));
     }
 
     [Fact]
     public void GetByCode_finds_lobby_case_insensitively()
     {
         var mgr = new LobbyManager(new Random(1));
-        var state = mgr.CreateLobby(Guid.NewGuid(), "c1");
+        var state = mgr.CreateLobby(Guid.NewGuid(), "name", "c1");
 
         var found = mgr.GetByCode(state.Room.Code.ToLowerInvariant());
 
@@ -71,10 +87,10 @@ public class LobbyManagerTests
     {
         var mgr = new LobbyManager(new Random(1));
         var host = Guid.NewGuid();
-        var state = mgr.CreateLobby(host, "c1");
+        var state = mgr.CreateLobby(host, "name", "c1");
         var joiner = Guid.NewGuid();
 
-        var outcome = mgr.JoinByCode(state.Room.Code, joiner, "c2");
+        var outcome = mgr.JoinByCode(state.Room.Code, joiner, "name", "c2");
 
         Assert.Equal(LobbyJoinResult.Success, outcome.Result);
         Assert.Same(state, outcome.State);
@@ -87,7 +103,7 @@ public class LobbyManagerTests
     public void JoinByCode_returns_NotFound_for_unknown_code()
     {
         var mgr = new LobbyManager(new Random(1));
-        var outcome = mgr.JoinByCode("ZZZZZZ", Guid.NewGuid(), "c1");
+        var outcome = mgr.JoinByCode("ZZZZZZ", Guid.NewGuid(), "name", "c1");
         Assert.Equal(LobbyJoinResult.NotFound, outcome.Result);
         Assert.Null(outcome.State);
     }
@@ -96,12 +112,12 @@ public class LobbyManagerTests
     public void JoinByCode_returns_Full_when_lobby_at_max_capacity()
     {
         var mgr = new LobbyManager(new Random(1));
-        var state = mgr.CreateLobby(Guid.NewGuid(), "c1");
+        var state = mgr.CreateLobby(Guid.NewGuid(), "name", "c1");
         for (int i = 1; i < LobbyManager.DefaultMaxPlayers; i++)
             Assert.Equal(LobbyJoinResult.Success,
-                mgr.JoinByCode(state.Room.Code, Guid.NewGuid(), $"c{i + 1}").Result);
+                mgr.JoinByCode(state.Room.Code, Guid.NewGuid(), "name", $"c{i + 1}").Result);
 
-        var overflow = mgr.JoinByCode(state.Room.Code, Guid.NewGuid(), "extra");
+        var overflow = mgr.JoinByCode(state.Room.Code, Guid.NewGuid(), "name", "extra");
 
         Assert.Equal(LobbyJoinResult.Full, overflow.Result);
         Assert.Null(overflow.State);
@@ -112,10 +128,10 @@ public class LobbyManagerTests
     public void JoinByCode_returns_AlreadyStarted_when_status_is_InGame()
     {
         var mgr = new LobbyManager(new Random(1));
-        var state = mgr.CreateLobby(Guid.NewGuid(), "c1");
+        var state = mgr.CreateLobby(Guid.NewGuid(), "name", "c1");
         state.Room.Status = LobbyStatus.InGame;
 
-        var outcome = mgr.JoinByCode(state.Room.Code, Guid.NewGuid(), "c2");
+        var outcome = mgr.JoinByCode(state.Room.Code, Guid.NewGuid(), "name", "c2");
 
         Assert.Equal(LobbyJoinResult.AlreadyStarted, outcome.Result);
     }
@@ -125,9 +141,9 @@ public class LobbyManagerTests
     {
         var mgr = new LobbyManager(new Random(1));
         var host = Guid.NewGuid();
-        var state = mgr.CreateLobby(host, "c1");
+        var state = mgr.CreateLobby(host, "name", "c1");
 
-        var outcome = mgr.JoinByCode(state.Room.Code, host, "c1");
+        var outcome = mgr.JoinByCode(state.Room.Code, host, "name", "c1");
 
         Assert.Equal(LobbyJoinResult.AlreadyInLobby, outcome.Result);
         Assert.Single(state.Room.Members);
@@ -139,8 +155,8 @@ public class LobbyManagerTests
         var mgr = new LobbyManager(new Random(1));
         var host = Guid.NewGuid();
         var joiner = Guid.NewGuid();
-        var state = mgr.CreateLobby(host, "c1");
-        mgr.JoinByCode(state.Room.Code, joiner, "c2");
+        var state = mgr.CreateLobby(host, "name", "c1");
+        mgr.JoinByCode(state.Room.Code, joiner, "name", "c2");
 
         var outcome = mgr.Leave(joiner);
 
@@ -157,9 +173,9 @@ public class LobbyManagerTests
         var host = Guid.NewGuid();
         var second = Guid.NewGuid();
         var third = Guid.NewGuid();
-        var state = mgr.CreateLobby(host, "c1");
-        mgr.JoinByCode(state.Room.Code, second, "c2");
-        mgr.JoinByCode(state.Room.Code, third, "c3");
+        var state = mgr.CreateLobby(host, "name", "c1");
+        mgr.JoinByCode(state.Room.Code, second, "name", "c2");
+        mgr.JoinByCode(state.Room.Code, third, "name", "c3");
 
         mgr.Leave(host);
 
@@ -172,7 +188,7 @@ public class LobbyManagerTests
     {
         var mgr = new LobbyManager(new Random(1));
         var host = Guid.NewGuid();
-        var state = mgr.CreateLobby(host, "c1");
+        var state = mgr.CreateLobby(host, "name", "c1");
         var code = state.Room.Code;
 
         var outcome = mgr.Leave(host);
@@ -194,7 +210,7 @@ public class LobbyManagerTests
         // — late joiners should see "AlreadyStarted" instead of "NotFound".
         var mgr = new LobbyManager(new Random(1));
         var host = Guid.NewGuid();
-        var state = mgr.CreateLobby(host, "c1");
+        var state = mgr.CreateLobby(host, "name", "c1");
         var code = state.Room.Code;
         Assert.Equal(LobbyStartResult.Success, mgr.StartGame(state.Room.Id, host).Result);
 
@@ -205,7 +221,7 @@ public class LobbyManagerTests
         Assert.Same(state, mgr.Get(state.Room.Id));
         Assert.Same(state, mgr.GetByCode(code));
         // A late joiner now sees AlreadyStarted (clear UX) rather than NotFound.
-        var late = mgr.JoinByCode(code, Guid.NewGuid(), "c2");
+        var late = mgr.JoinByCode(code, Guid.NewGuid(), "name", "c2");
         Assert.Equal(LobbyJoinResult.AlreadyStarted, late.Result);
     }
 
@@ -223,8 +239,8 @@ public class LobbyManagerTests
     {
         var mgr = new LobbyManager(new Random(1));
         var host = Guid.NewGuid();
-        var state = mgr.CreateLobby(host, "c1");
-        mgr.JoinByCode(state.Room.Code, Guid.NewGuid(), "c2");
+        var state = mgr.CreateLobby(host, "name", "c1");
+        mgr.JoinByCode(state.Room.Code, Guid.NewGuid(), "name", "c2");
 
         var outcome = mgr.StartGame(state.Room.Id, host);
 
@@ -239,8 +255,8 @@ public class LobbyManagerTests
         var mgr = new LobbyManager(new Random(1));
         var host = Guid.NewGuid();
         var joiner = Guid.NewGuid();
-        var state = mgr.CreateLobby(host, "c1");
-        mgr.JoinByCode(state.Room.Code, joiner, "c2");
+        var state = mgr.CreateLobby(host, "name", "c1");
+        mgr.JoinByCode(state.Room.Code, joiner, "name", "c2");
 
         var outcome = mgr.StartGame(state.Room.Id, joiner);
 
@@ -253,7 +269,7 @@ public class LobbyManagerTests
     {
         var mgr = new LobbyManager(new Random(1));
         var host = Guid.NewGuid();
-        var state = mgr.CreateLobby(host, "c1");
+        var state = mgr.CreateLobby(host, "name", "c1");
         Assert.Equal(LobbyStartResult.Success, mgr.StartGame(state.Room.Id, host).Result);
 
         var second = mgr.StartGame(state.Room.Id, host);
@@ -274,13 +290,13 @@ public class LobbyManagerTests
     {
         var mgr = new LobbyManager(new Random(1));
         var host = Guid.NewGuid();
-        var first = mgr.CreateLobby(host, "c1");
+        var first = mgr.CreateLobby(host, "name", "c1");
         var firstCode = first.Room.Code;
         mgr.Leave(host);
 
         // New lobby is not the disposed one even if the rng repeats; the manager
         // must have released the code reservation so creation can proceed.
-        var second = mgr.CreateLobby(host, "c2");
+        var second = mgr.CreateLobby(host, "name", "c2");
 
         Assert.NotEqual(first.Room.Id, second.Room.Id);
         Assert.Same(second, mgr.GetByCode(second.Room.Code));

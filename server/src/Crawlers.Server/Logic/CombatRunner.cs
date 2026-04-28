@@ -136,13 +136,13 @@ public class CombatRunner
                 }
 
                 // Persist deaths recorded this round. Run history is per-player
-                // so each death gets its own row, and a parallel corpses row
-                // captures the death position so the future continuation phase
-                // can query "what corpses are on floor N?" without a schema change.
+                // so each death gets its own row; a parallel corpse row carries
+                // the world-scoped record (Step 3 of the persistent-world phase) —
+                // every future session loading this floor will see it.
                 foreach (var (pid, outcome) in result.ExitedThisRound)
                 {
                     if (outcome != CombatOutcome.PlayerDied) continue;
-                    var cause = ResolveCauseOfDeath(state, snapshotCombat);
+                    var (cause, killer) = ResolveDeathContext(state, snapshotCombat);
                     try
                     {
                         await _runHistory.RecordDeathAsync(state, pid, cause, ct);
@@ -155,7 +155,7 @@ public class CombatRunner
                     }
                     try
                     {
-                        await _corpses.RecordCorpseAsync(state, pid, cause, ct);
+                        await _corpses.RecordCorpseAsync(state, pid, cause, killer, ct);
                     }
                     catch (Exception ex)
                     {
@@ -187,11 +187,18 @@ public class CombatRunner
         }
     }
 
-    private static string? ResolveCauseOfDeath(SessionState state, ActiveCombat? combat)
+    /// <summary>
+    /// Resolves both the human-readable narrative ("Slain by a Husk") and
+    /// the short archetype tag ("Husk") for the corpses table. The tag is
+    /// what future stats / heatmap queries pivot on; the narrative is what
+    /// the run-summary screen renders.
+    /// </summary>
+    private static (string? Cause, string? Killer) ResolveDeathContext(SessionState state, ActiveCombat? combat)
     {
-        if (combat is null) return null;
+        if (combat is null) return (null, null);
         var floor = state.GetFloor(combat.FloorNumber);
         var enemy = floor?.Entities.FirstOrDefault(e => e.Id == combat.EnemyId);
-        return enemy?.Name is { } name ? $"Slain by a {name}" : null;
+        if (enemy?.Name is not { } name) return (null, null);
+        return ($"Slain by a {name}", name);
     }
 }

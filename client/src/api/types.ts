@@ -88,6 +88,14 @@ export interface EntityDto {
   name: string;
   x: number;
   y: number;
+  // ISO 8601 timestamp; set on Corpse entities, drives Step 4 visual
+  // aging on the client. Null for entity types the renderer doesn't fade.
+  diedAt: string | null;
+  // Step 5 tooltip metadata — Corpse entities only. Username is frozen
+  // at the moment of death; killerType is the archetype tag ("Husk", …)
+  // or null for non-combat deaths / legacy rows.
+  username: string | null;
+  killerType: string | null;
 }
 
 export interface RoomDto {
@@ -97,6 +105,12 @@ export interface RoomDto {
   height: number;
 }
 
+export interface TileHeatDto {
+  x: number;
+  y: number;
+  count: number;
+}
+
 export interface FloorSnapshotDto {
   width: number;
   height: number;
@@ -104,10 +118,47 @@ export interface FloorSnapshotDto {
   visibility: number[]; // VisibilityState values, same row-major indexing
   rooms: RoomDto[];
   entities: EntityDto[]; // server-side fog filtering — only Visible enemies appear here
+  // Step 9 — sparse list of (x, y, count) entries for tiles where deaths
+  // have accumulated. Drives environmental tile-tinting in the renderer;
+  // not exposed as a UI overlay.
+  heatmap: TileHeatDto[];
+  // Step 12 — bleak announcer line for the floor. Same string for every
+  // snapshot of this floor in this session; the client detects floor
+  // change to fade it in for a few seconds.
+  flavor: string | null;
+}
+
+// Step 12 — public stats served by GET /api/world-stats. All counts are
+// over the entire history of the persistent world. Nullable fields are
+// null when the world hasn't accumulated enough data yet.
+export interface KillerStat {
+  killer: string;
+  count: number;
+}
+export interface DeadliestTile {
+  floorNumber: number;
+  x: number;
+  y: number;
+  count: number;
+}
+export interface DeadliestPlayer {
+  username: string;
+  count: number;
+}
+export interface WorldStatsDto {
+  totalPlayers: number;
+  totalDeaths: number;
+  deepestFloorReached: number;
+  survivalRatePercent: number;
+  averageFloorAtDeath: number;
+  mostCommonKiller: KillerStat | null;
+  deadliestTile: DeadliestTile | null;
+  mostFallenPlayer: DeadliestPlayer | null;
 }
 
 export interface PlayerSnapshotDto {
   id: string;
+  username: string;
   x: number;
   y: number;
   hp: number;
@@ -137,6 +188,7 @@ export interface CombatLogDto {
 
 export interface OtherPlayerDto {
   id: string;
+  username: string;
   x: number;
   y: number;
   hp: number;
@@ -149,6 +201,7 @@ export interface OtherPlayerDto {
 
 export interface SpectatableTargetDto {
   id: string;
+  username: string;
   floorNumber: number;
   inCombat: boolean;
 }
@@ -162,6 +215,7 @@ export type RunOutcome = (typeof RunOutcome)[keyof typeof RunOutcome];
 
 export interface RunSummaryPlayerDto {
   playerId: string;
+  username: string;
   finalFloor: number;
   deepestFloor: number;
   finalHp: number;
@@ -217,6 +271,7 @@ export type LobbyStatus = (typeof LobbyStatus)[keyof typeof LobbyStatus];
 
 export interface LobbyMemberDto {
   playerId: string;
+  username: string;
   isHost: boolean;
   joinedAt: string; // ISO 8601
 }

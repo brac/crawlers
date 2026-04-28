@@ -4,6 +4,7 @@ using Crawlers.Server.Contracts;
 using Crawlers.Server.Logic;
 using Crawlers.Server.Sessions;
 using Xunit;
+using Crawlers.Tests.TestSupport;
 
 namespace Crawlers.Tests.Contracts;
 
@@ -12,8 +13,8 @@ public class SnapshotMapperTests
     [Fact]
     public void Tiles_are_flattened_in_row_major_order()
     {
-        var mgr = new SessionManager();
-        var state = mgr.CreateSoloSession(seed: 1);
+        var mgr = new SessionManager(TestWorld.Make(), TestWorld.MakeCorpses());
+        var state = mgr.CreateSoloSession();
         var snap = SnapshotMapper.ToSnapshot(state, state.PrimaryPlayer.Id);
         var floor = state.GetFloorFor(state.PrimaryPlayer);
 
@@ -32,8 +33,8 @@ public class SnapshotMapperTests
     [Fact]
     public void Snapshot_carries_session_player_and_floor_metadata()
     {
-        var mgr = new SessionManager();
-        var state = mgr.CreateSoloSession(seed: 1);
+        var mgr = new SessionManager(TestWorld.Make(), TestWorld.MakeCorpses());
+        var state = mgr.CreateSoloSession();
         var snap = SnapshotMapper.ToSnapshot(state, state.PrimaryPlayer.Id);
         var floor = state.GetFloorFor(state.PrimaryPlayer);
 
@@ -52,7 +53,7 @@ public class SnapshotMapperTests
     [Fact]
     public void OtherPlayers_InCombat_reflects_per_player_mode()
     {
-        var mgr = new SessionManager();
+        var mgr = new SessionManager(TestWorld.Make(), TestWorld.MakeCorpses());
         var starts = Enumerable.Range(0, 2)
             .Select(_ => new PlayerStartState
             {
@@ -60,7 +61,7 @@ public class SnapshotMapperTests
                 Stats = SessionManager.DefaultPlayerStats()
             })
             .ToList();
-        var state = mgr.CreateSession(starts, seed: 5);
+        var state = mgr.CreateSession(starts);
         var localId = state.Players[0].Id;
         // Flip the teammate into Combat by hand — exercising the snapshot
         // surface, not the engagement flow.
@@ -76,7 +77,7 @@ public class SnapshotMapperTests
     [Fact]
     public void OtherPlayers_InCombat_is_false_for_exploring_teammates()
     {
-        var mgr = new SessionManager();
+        var mgr = new SessionManager(TestWorld.Make(), TestWorld.MakeCorpses());
         var starts = Enumerable.Range(0, 2)
             .Select(_ => new PlayerStartState
             {
@@ -84,7 +85,7 @@ public class SnapshotMapperTests
                 Stats = SessionManager.DefaultPlayerStats()
             })
             .ToList();
-        var state = mgr.CreateSession(starts, seed: 5);
+        var state = mgr.CreateSession(starts);
 
         var snap = SnapshotMapper.ToSnapshot(state, state.Players[0].Id);
 
@@ -101,7 +102,7 @@ public class SnapshotMapperTests
         //     OtherPlayers (A is on floor 2).
         // Combat scope and floor entities are both per-player, so descending
         // a teammate must not bleed into the stayer's view.
-        var mgr = new SessionManager();
+        var mgr = new SessionManager(TestWorld.Make(), TestWorld.MakeCorpses());
         var starts = Enumerable.Range(0, 2)
             .Select(_ => new PlayerStartState
             {
@@ -109,7 +110,7 @@ public class SnapshotMapperTests
                 Stats = SessionManager.DefaultPlayerStats()
             })
             .ToList();
-        var state = mgr.CreateSession(starts, seed: 23);
+        var state = mgr.CreateSession(starts);
         var a = state.Players[0];
         var b = state.Players[1];
 
@@ -118,7 +119,7 @@ public class SnapshotMapperTests
         var stairsDown = FindTile(floor1, TileType.StairsDown);
         Assert.True(stairsDown.HasValue);
         a.Position = stairsDown!.Value;
-        Assert.True(new DescendService().TryDescend(state, a.Id));
+        Assert.True(new DescendService(TestWorld.Make(), TestWorld.MakeCorpses()).TryDescend(state, a.Id));
 
         var aSnap = SnapshotMapper.ToSnapshot(state, a.Id);
         var bSnap = SnapshotMapper.ToSnapshot(state, b.Id);
@@ -133,7 +134,7 @@ public class SnapshotMapperTests
     [Fact]
     public void Dead_player_with_no_target_lists_alive_connected_teammates_for_picker()
     {
-        var mgr = new SessionManager();
+        var mgr = new SessionManager(TestWorld.Make(), TestWorld.MakeCorpses());
         var starts = Enumerable.Range(0, 3)
             .Select(_ => new PlayerStartState
             {
@@ -141,7 +142,7 @@ public class SnapshotMapperTests
                 Stats = SessionManager.DefaultPlayerStats()
             })
             .ToList();
-        var state = mgr.CreateSession(starts, seed: 31);
+        var state = mgr.CreateSession(starts);
         var dead = state.Players[0];
         var alive = state.Players[1];
         var disconnected = state.Players[2];
@@ -164,7 +165,7 @@ public class SnapshotMapperTests
     [Fact]
     public void Dead_player_with_target_sees_targets_floor_and_position()
     {
-        var mgr = new SessionManager();
+        var mgr = new SessionManager(TestWorld.Make(), TestWorld.MakeCorpses());
         var starts = Enumerable.Range(0, 2)
             .Select(_ => new PlayerStartState
             {
@@ -172,7 +173,7 @@ public class SnapshotMapperTests
                 Stats = SessionManager.DefaultPlayerStats()
             })
             .ToList();
-        var state = mgr.CreateSession(starts, seed: 41);
+        var state = mgr.CreateSession(starts);
         var dead = state.Players[0];
         var alive = state.Players[1];
         state.SetConnection(dead.Id, "c-dead");
@@ -184,7 +185,7 @@ public class SnapshotMapperTests
         var stairs = FindTile(floor1, TileType.StairsDown);
         Assert.True(stairs.HasValue);
         alive.Position = stairs!.Value;
-        Assert.True(new DescendService().TryDescend(state, alive.Id));
+        Assert.True(new DescendService(TestWorld.Make(), TestWorld.MakeCorpses()).TryDescend(state, alive.Id));
         Assert.Equal(2, alive.CurrentFloorNumber);
 
         // Dead picks alive as their spectate target.
@@ -206,7 +207,7 @@ public class SnapshotMapperTests
     [Fact]
     public void Dead_player_target_is_cleared_when_target_dies()
     {
-        var mgr = new SessionManager();
+        var mgr = new SessionManager(TestWorld.Make(), TestWorld.MakeCorpses());
         var starts = Enumerable.Range(0, 2)
             .Select(_ => new PlayerStartState
             {
@@ -214,7 +215,7 @@ public class SnapshotMapperTests
                 Stats = SessionManager.DefaultPlayerStats()
             })
             .ToList();
-        var state = mgr.CreateSession(starts, seed: 53);
+        var state = mgr.CreateSession(starts);
         var spectator = state.Players[0];
         var target = state.Players[1];
         state.SetConnection(spectator.Id, "c-s");
@@ -287,8 +288,8 @@ public class SnapshotMapperTests
     [Fact]
     public void RunSummary_is_null_while_run_is_in_progress()
     {
-        var mgr = new SessionManager();
-        var state = mgr.CreateSoloSession(seed: 1);
+        var mgr = new SessionManager(TestWorld.Make(), TestWorld.MakeCorpses());
+        var state = mgr.CreateSoloSession();
 
         var snap = SnapshotMapper.ToSnapshot(state, state.PrimaryPlayer.Id);
 
@@ -301,7 +302,7 @@ public class SnapshotMapperTests
         // PartyWiped scenario: two players, both dead. Snapshot for each must
         // carry the same summary — the end-of-run screen renders identically
         // on every client.
-        var mgr = new SessionManager();
+        var mgr = new SessionManager(TestWorld.Make(), TestWorld.MakeCorpses());
         var starts = Enumerable.Range(0, 2)
             .Select(_ => new PlayerStartState
             {
@@ -309,7 +310,7 @@ public class SnapshotMapperTests
                 Stats = SessionManager.DefaultPlayerStats()
             })
             .ToList();
-        var state = mgr.CreateSession(starts, seed: 71);
+        var state = mgr.CreateSession(starts);
         var p0 = state.Players[0];
         var p1 = state.Players[1];
 
@@ -357,7 +358,7 @@ public class SnapshotMapperTests
     [Fact]
     public void RunSummary_DeepestFloor_is_max_across_party()
     {
-        var mgr = new SessionManager();
+        var mgr = new SessionManager(TestWorld.Make(), TestWorld.MakeCorpses());
         var starts = Enumerable.Range(0, 2)
             .Select(_ => new PlayerStartState
             {
@@ -365,7 +366,7 @@ public class SnapshotMapperTests
                 Stats = SessionManager.DefaultPlayerStats()
             })
             .ToList();
-        var state = mgr.CreateSession(starts, seed: 87);
+        var state = mgr.CreateSession(starts);
         // Pretend one of them got further before dying.
         state.Players[0].DeepestFloorReached = 2;
         state.Players[1].DeepestFloorReached = 5;
@@ -387,7 +388,7 @@ public class SnapshotMapperTests
     [Fact]
     public void Multi_player_snapshot_lists_teammates_on_same_floor()
     {
-        var mgr = new SessionManager();
+        var mgr = new SessionManager(TestWorld.Make(), TestWorld.MakeCorpses());
         var starts = Enumerable.Range(0, 3)
             .Select(_ => new PlayerStartState
             {
@@ -395,7 +396,7 @@ public class SnapshotMapperTests
                 Stats = SessionManager.DefaultPlayerStats()
             })
             .ToList();
-        var state = mgr.CreateSession(starts, seed: 5);
+        var state = mgr.CreateSession(starts);
 
         var pid = state.Players[0].Id;
         var snap = SnapshotMapper.ToSnapshot(state, pid);

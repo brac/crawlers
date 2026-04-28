@@ -8,6 +8,7 @@ namespace Crawlers.Server.Contracts;
 /// </summary>
 public record SpectatableTargetDto(
     Guid Id,
+    string Username,
     int FloorNumber,
     bool InCombat
 );

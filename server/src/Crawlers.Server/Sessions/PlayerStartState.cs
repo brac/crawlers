@@ -12,6 +12,16 @@ namespace Crawlers.Server.Sessions;
 public class PlayerStartState
 {
     public required Guid PlayerId { get; init; }
+
+    /// <summary>
+    /// Display name copied from the lobby member (which copies it from the
+    /// persistent <c>players</c> row at Identify time). Carried through here
+    /// so <see cref="Player.Username"/> is set the moment the session is
+    /// created without the session graph needing to know about the identity
+    /// service.
+    /// </summary>
+    public string Username { get; init; } = string.Empty;
+
     public required EntityStats Stats { get; init; }
     public List<Item> Inventory { get; init; } = new();
 

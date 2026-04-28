@@ -1,8 +1,16 @@
-import { AnimatedSprite, Application, Container, Sprite, Text } from "pixi.js";
+import {
+  AnimatedSprite,
+  Application,
+  Container,
+  type FederatedPointerEvent,
+  Sprite,
+  Text,
+} from "pixi.js";
 import type {
   CombatLogDto,
   EntityDto,
   GameStateSnapshotDto,
+  TileHeatDto,
 } from "../api/types";
 import {
   CombatEventKind,
@@ -190,6 +198,105 @@ function fumblePose(k: number): WeaponPose {
 
 // Subtle 1.5 Hz idle bob — one full sin cycle per ~667 ms (matches the
 // 4-frame, 6 fps player idle strip).
+// Stable ±90° pick for a corpse sprite, plus a small per-corpse angle
+// jitter so a row of bodies doesn't read as a uniform line. FNV-1a over
+// the entity id mixes every byte (so adjacent corpses and uuid streaks
+// don't collapse to the same orientation); we burn the high bit for the
+// side and the next 8 bits for the jitter magnitude. Same id always
+// returns the same rotation — persistent corpses keep their pose across
+// reloads. Returns radians.
+const CORPSE_JITTER = Math.PI / 12; // ±15°
+function pickCorpseRotation(id: string): number {
+  let h = 0x811c9dc5; // FNV offset basis
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  // High-order bits dodge any low-bit correlation that survives the mixer
+  // for a small input alphabet.
+  const sideBit = (h >>> 16) & 1;
+  const jitter01 = ((h >>> 17) & 0xff) / 255; // 0..1
+  const jitter = (jitter01 - 0.5) * 2 * CORPSE_JITTER; // ±CORPSE_JITTER
+  const base = sideBit === 1 ? Math.PI / 2 : -Math.PI / 2;
+  return base + jitter;
+}
+
+// Step 4 visual aging. Older corpses fade so a populated floor reads as
+// "deep history with a few fresh kills" instead of a uniform sea of
+// bodies. Computed once at sprite creation — corpses don't tick visibly
+// during a session (the age delta over a single play is negligible).
+//
+// Dev-tuned tiers (compressed so the fade arc shows up within a play
+// session — bump these up if you want corpses to feel more "ancient"):
+//
+//   < 1 min:     1.00  (fresh — full)
+//   < 5 min:     0.85
+//   < 15 min:    0.65
+//   < 1 hour:    0.45
+//   ≥ 1 hour:    0.30  (old — still legible, deeply faded)
+function corpseAlpha(diedAtIso: string | null): number {
+  if (!diedAtIso) return 1.0;
+  const t = Date.parse(diedAtIso);
+  if (Number.isNaN(t)) return 1.0;
+  const ageMs = Math.max(0, Date.now() - t);
+  const MIN = 60_000;
+  const HOUR = 60 * MIN;
+  if (ageMs < 1 * MIN) return 1.0;
+  if (ageMs < 5 * MIN) return 0.85;
+  if (ageMs < 15 * MIN) return 0.65;
+  if (ageMs < 1 * HOUR) return 0.45;
+  return 0.3;
+}
+
+// Step 5 tooltip payload — what the renderer hands to the React overlay
+// when a player hovers / taps a corpse. `clientXY` is the page-absolute
+// CSS-pixel position to anchor the tooltip at; null clears it.
+export interface CorpseTooltipInfo {
+  username: string | null;
+  killerType: string | null;
+  diedAtIso: string | null;
+}
+export type CorpseHoverHandler = (
+  info: CorpseTooltipInfo | null,
+  clientXY: { x: number; y: number } | null,
+) => void;
+
+// Step 9 environmental death heatmap. Each tile in the snapshot heatmap
+// gets a subtle dark-blueish multiply on top of its normal floor sprite —
+// "this place feels dangerous" without surfacing as a UI overlay. The
+// curve normalizes against the hottest tile on the floor so a saturated
+// veteran floor doesn't go entirely black, and an early floor with only
+// 1-death tiles still picks up a faint ambient tint.
+//
+// Returns a sparse Map keyed "x,y" → tint (0xffffff = no tint).
+function buildHeatTints(heatmap: TileHeatDto[]): Map<string, number> {
+  const out = new Map<string, number>();
+  if (heatmap.length === 0) return out;
+  const maxCount = Math.max(...heatmap.map((h) => h.count));
+  for (const h of heatmap) {
+    // Log-ish curve: a tile with 1/Nth of the max heat still reads as
+    // moderately darkened rather than negligible. Capped so even max
+    // heat retains enough of the original tile texture to be readable.
+    const intensity01 = Math.min(1, Math.log(1 + h.count) / Math.log(1 + maxCount));
+    // Floor of 0.55 (heaviest dimming) up to 1.0 (no dimming).
+    const k = 1 - intensity01 * 0.45;
+    // Slight blue/purple shift on top of the dimming for a "stained" feel
+    // — red and green dim a bit more than blue.
+    const r = Math.round(0xff * k * 0.92);
+    const g = Math.round(0xff * k * 0.92);
+    const b = Math.round(0xff * k);
+    out.set(`${h.x},${h.y}`, (r << 16) | (g << 8) | b);
+  }
+  return out;
+}
+
+// Baseline subduedness for corpses — applied at spawn regardless of age.
+// Corpses should read as part of the floor rather than competing with the
+// living player sprite for attention. The alpha curve in corpseAlpha()
+// then dims them further over time.
+const CORPSE_TINT = 0x9a8870;     // warm muted tan, multiplies the knight palette
+const CORPSE_SCALE = 0.85;         // a smidge smaller than the live knight
+
 function idleBob(now: number): number {
   const period = 667;
   const phase = (now / period) * Math.PI * 2;
@@ -243,9 +350,32 @@ export class DungeonRenderer {
   private cameraShakeUntil = 0;
   private cameraShakeDuration = 0;
   private cameraShakeMagnitude = 0;
+  private onCorpseHover: CorpseHoverHandler | null = null;
 
   constructor(assets: AssetLibrary) {
     this.assets = assets;
+  }
+
+  /// Wire a callback that receives corpse-hover events. Pass null to
+  /// clear. Game.tsx sets this up so a CorpseTooltip React overlay
+  /// can render at the cursor when a player hovers / taps a body.
+  setOnCorpseHover(cb: CorpseHoverHandler | null) {
+    this.onCorpseHover = cb;
+  }
+
+  private fireCorpseHover(info: CorpseTooltipInfo | null, event: FederatedPointerEvent | null) {
+    if (!this.onCorpseHover) return;
+    if (info === null || event === null || !this.app) {
+      this.onCorpseHover(null, null);
+      return;
+    }
+    // event.global is in canvas-local CSS pixels; offset by the canvas's
+    // page rect to get the absolute client coords the tooltip needs.
+    const rect = this.app.canvas.getBoundingClientRect();
+    this.onCorpseHover(info, {
+      x: rect.left + event.global.x,
+      y: rect.top + event.global.y,
+    });
   }
 
   async mount(parent: HTMLElement, width: number, height: number) {
@@ -305,9 +435,15 @@ export class DungeonRenderer {
   }
 
   private drawTiles(snapshot: GameStateSnapshotDto) {
-    const { width, height, tiles, visibility, rooms } = snapshot.floor;
+    const { width, height, tiles, visibility, rooms, heatmap } = snapshot.floor;
     const salt = snapshot.floorNumber;
     this.tileLayer.removeChildren();
+
+    // Step 9 — build a sparse "tint per tile" map from the death heatmap.
+    // Hottest tile drives the saturation curve so a floor with a few
+    // 50-death tiles doesn't look entirely black, and an early floor with
+    // only 1-death tiles still gets some ambient subduing.
+    const tintByKey = buildHeatTints(heatmap);
 
     // Floors / walls / stairs only. Door overlays are drawn in updateDoors
     // (they live in spriteLayer so they can z-sort with players).
@@ -319,7 +455,8 @@ export class DungeonRenderer {
         if (alpha === 0) continue;
         const t = tiles[i] as TileType;
         const baseType = isDoorTile(t) ? TileType.Floor : t;
-        this.addTileSprite(baseType, x, y, alpha, salt);
+        const tint = tintByKey.get(`${x},${y}`) ?? 0xffffff;
+        this.addTileSprite(baseType, x, y, alpha, salt, tint);
       }
     }
 
@@ -401,6 +538,7 @@ export class DungeonRenderer {
     y: number,
     alpha: number,
     salt: number,
+    tint: number,
   ) {
     const name = TILE_NAMES[t];
 
@@ -444,6 +582,7 @@ export class DungeonRenderer {
       sprite.height = TILE_SIZE;
     }
     sprite.alpha = alpha;
+    if (tint !== 0xffffff) sprite.tint = tint;
     this.tileLayer.addChild(sprite);
   }
 
@@ -519,7 +658,7 @@ export class DungeonRenderer {
       const existing = this.otherPlayerSprites.get(op.id);
       if (existing) {
         this.retarget(existing.tracked, target.x, target.y, snap);
-        const desired = this.labelTextFor(op.id, op.inCombat);
+        const desired = this.labelTextFor(op.username, op.inCombat);
         if (existing.label.text !== desired) existing.label.text = desired;
         existing.isDead = op.hp <= 0;
         existing.tracked.sprite.visible = !existing.isDead;
@@ -533,7 +672,7 @@ export class DungeonRenderer {
       tracked.sprite.tint = tracked.baseTint;
       tracked.sprite.x = target.x;
       tracked.sprite.y = target.y;
-      const label = this.makeNameLabel(op.id, op.inCombat);
+      const label = this.makeNameLabel(op.username, op.inCombat);
       label.x = target.x;
       label.y = target.y - TILE_SIZE - LABEL_OFFSET_PX;
       const weapon = this.spawnWeaponSprite();
@@ -573,14 +712,13 @@ export class DungeonRenderer {
     }
   }
 
-  private labelTextFor(playerId: string, inCombat: boolean): string {
-    const base = `Player ${playerId.slice(0, 4).toUpperCase()}`;
-    return inCombat ? `${base} ⚔` : base;
+  private labelTextFor(username: string, inCombat: boolean): string {
+    return inCombat ? `${username} ⚔` : username;
   }
 
-  private makeNameLabel(playerId: string, inCombat: boolean): Text {
+  private makeNameLabel(username: string, inCombat: boolean): Text {
     const t = new Text({
-      text: this.labelTextFor(playerId, inCombat),
+      text: this.labelTextFor(username, inCombat),
       style: {
         fontFamily: "ui-monospace, Menlo, monospace",
         fontSize: 10,
@@ -772,14 +910,41 @@ export class DungeonRenderer {
       return { sprite, tween: null, characterName: null, currentAnim: null, baseTint: 0xffffff };
     }
     if (e.type === EntityType.Corpse) {
-      // Reuse the manifest's "Corpse" item texture (mapped to the skull
-      // frame) — center-anchored, untinted, no animation. Drawn at the body
-      // of the floor so survivors and enemies walk *over* it.
+      // Reuse the manifest's "Corpse" item texture (knight idle frame 0,
+      // 16×28). Rotated ±90° so the knight lies on his side; the side is
+      // picked from a hash over the full entity id so the same corpse keeps
+      // the same orientation across reloads (persistent rows hydrate with
+      // a stable id), while the field of corpses mixes left- and right-
+      // facing bodies. Mixing the whole id avoids the streaks you get from
+      // a single-byte parity check (uuids share a small alphabet of leading
+      // hex chars and you can easily hit 6+ in a row of one parity).
       const tex = this.assets.itemTexture("Corpse");
       if (!tex) return null;
       const sprite = new Sprite(tex);
       sprite.anchor.set(0.5, 0.5);
-      return { sprite, tween: null, characterName: null, currentAnim: null, baseTint: 0xffffff };
+      sprite.rotation = pickCorpseRotation(e.id);
+      sprite.alpha = corpseAlpha(e.diedAt);
+      sprite.tint = CORPSE_TINT;
+      sprite.scale.set(CORPSE_SCALE);
+
+      // Step 5: hover / tap surfaces a tooltip with the dead player's
+      // username, killer, and time-since-death. Mobile Safari fires
+      // pointerover on first tap and pointerout on the next tap (or scroll),
+      // so the same handlers cover desktop hover and mobile tap-to-toggle
+      // without special casing.
+      const tip: CorpseTooltipInfo = {
+        username: e.username,
+        killerType: e.killerType,
+        diedAtIso: e.diedAt,
+      };
+      sprite.eventMode = "static";
+      sprite.cursor = "pointer";
+      sprite.on("pointerover", (ev: FederatedPointerEvent) => this.fireCorpseHover(tip, ev));
+      sprite.on("pointermove", (ev: FederatedPointerEvent) => this.fireCorpseHover(tip, ev));
+      sprite.on("pointerout", () => this.fireCorpseHover(null, null));
+      sprite.on("pointertap", (ev: FederatedPointerEvent) => this.fireCorpseHover(tip, ev));
+
+      return { sprite, tween: null, characterName: null, currentAnim: null, baseTint: CORPSE_TINT };
     }
     return this.spawnCharacter(e.name);
   }

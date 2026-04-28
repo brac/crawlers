@@ -39,6 +39,7 @@ async function writeClipboard(text: string): Promise<boolean> {
 export type LobbyView =
   | {
       kind: "menu";
+      username: string;
       busy: boolean;
       error: string | null;
     }
@@ -56,6 +57,8 @@ interface LobbyProps {
   onJoin: (code: string) => void;
   onLeave: () => void;
   onStart: () => void;
+  onEditIdentity: () => void;
+  onOpenStats: () => void;
 }
 
 export function Lobby(props: LobbyProps) {
@@ -65,10 +68,13 @@ export function Lobby(props: LobbyProps) {
         <div className="lobby-title">CRAWLERS</div>
         {props.view.kind === "menu" ? (
           <LobbyMenu
+            username={props.view.username}
             busy={props.view.busy}
             error={props.view.error}
             onCreate={props.onCreate}
             onJoin={props.onJoin}
+            onEditIdentity={props.onEditIdentity}
+            onOpenStats={props.onOpenStats}
           />
         ) : (
           <LobbyRoom
@@ -86,22 +92,52 @@ export function Lobby(props: LobbyProps) {
 }
 
 function LobbyMenu({
+  username,
   busy,
   error,
   onCreate,
   onJoin,
+  onEditIdentity,
+  onOpenStats,
 }: {
+  username: string;
   busy: boolean;
   error: string | null;
   onCreate: () => void;
   onJoin: (code: string) => void;
+  onEditIdentity: () => void;
+  onOpenStats: () => void;
 }) {
   const [code, setCode] = useState("");
   const trimmed = code.trim();
   const canJoin = !busy && trimmed.length === 6;
+  // Dev only — show a "spawn alt player" shortcut on localhost. Two tabs in
+  // the same browser share localStorage and would collide on the same UUID,
+  // so this opens a separate window with `?alt` (sessionStorage identity).
+  const isLocalhost =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1");
+  const showAltLink =
+    isLocalhost &&
+    typeof window !== "undefined" &&
+    !new URLSearchParams(window.location.search).has("alt");
 
   return (
     <>
+      <div className="lobby-identity-row">
+        <span className="lobby-identity-label">Playing as</span>
+        <span className="lobby-identity-name">{username}</span>
+        <button
+          type="button"
+          className="lobby-link"
+          onClick={onEditIdentity}
+          disabled={busy}
+        >
+          Change
+        </button>
+      </div>
+
       <button
         type="button"
         className="lobby-primary"
@@ -146,6 +182,28 @@ function LobbyMenu({
       </form>
 
       {error && <div className="lobby-error">{error}</div>}
+
+      <button
+        type="button"
+        className="lobby-link lobby-alt-link"
+        onClick={onOpenStats}
+      >
+        World stats →
+      </button>
+
+      {showAltLink && (
+        <button
+          type="button"
+          className="lobby-link lobby-alt-link"
+          onClick={() => {
+            const url = new URL(window.location.href);
+            url.searchParams.set("alt", "1");
+            window.open(url.toString(), "_blank", "noopener");
+          }}
+        >
+          + Open second test player (new window)
+        </button>
+      )}
     </>
   );
 }
@@ -200,9 +258,7 @@ function LobbyRoom({
           return (
             <li key={m.playerId} className="lobby-member">
               <span className="lobby-member-dot" aria-hidden />
-              <span className="lobby-member-name">
-                Player {m.playerId.slice(0, 4).toUpperCase()}
-              </span>
+              <span className="lobby-member-name">{m.username}</span>
               {m.isHost && <span className="lobby-badge host">Host</span>}
               {isYou && <span className="lobby-badge you">You</span>}
             </li>

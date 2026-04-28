@@ -5,6 +5,15 @@ namespace Crawlers.Domain.Models;
 public class Player
 {
     public Guid Id { get; init; }
+
+    /// <summary>
+    /// Display name pulled from the persistent <c>players</c> row at lobby
+    /// connect time. Mirrors whatever the player most recently typed into
+    /// the identity-setup screen. Not unique — collisions are fine, the id
+    /// is the real identity.
+    /// </summary>
+    public string Username { get; set; } = string.Empty;
+
     public Guid SessionId { get; init; }
     public Position Position { get; set; }
     public EntityStats Stats { get; set; } = new();

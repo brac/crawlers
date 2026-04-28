@@ -7,9 +7,6 @@ public class SessionState
 {
     public Session Session { get; }
 
-    /// <summary>Seed used to generate floor 1; subsequent floors derive theirs from it.</summary>
-    public int InitialSeed { get; init; }
-
     /// <summary>
     /// Lock object held during any mutation of this session — by hub methods,
     /// by the CombatRunner background tick loop, by lobby-to-session bridges.
@@ -57,6 +54,8 @@ public class SessionState
     private readonly List<Player> _players = new();
     private readonly Dictionary<int, Floor> _floors = new();
     private readonly Dictionary<int, VisibilityState[,]> _fogs = new();
+    private readonly Dictionary<int, IReadOnlyList<Crawlers.Server.Persistence.TileHeat>> _heatmaps = new();
+    private readonly Dictionary<int, string> _floorFlavors = new();
     private readonly Dictionary<Guid, ActiveCombat> _combats = new();
     private readonly Dictionary<Guid, string> _connections = new();
 
@@ -90,6 +89,28 @@ public class SessionState
 
     public VisibilityState[,]? GetFog(int floorNumber) =>
         _fogs.TryGetValue(floorNumber, out var f) ? f : null;
+
+    /// <summary>
+    /// Step 9 death-heatmap snapshot for a floor. Read once per floor at
+    /// hydration time; null when not yet loaded (e.g. floors a teammate
+    /// hasn't descended to). Empty list when no deaths qualify.
+    /// </summary>
+    public IReadOnlyList<Crawlers.Server.Persistence.TileHeat>? GetHeatmap(int floorNumber) =>
+        _heatmaps.TryGetValue(floorNumber, out var h) ? h : null;
+
+    public void SetHeatmap(int floorNumber, IReadOnlyList<Crawlers.Server.Persistence.TileHeat> heat) =>
+        _heatmaps[floorNumber] = heat;
+
+    /// <summary>
+    /// Step 12 announcer line for a floor — picked once at hydration and
+    /// shipped on every snapshot so the client can detect floor changes
+    /// and fade it in. Null if not yet set.
+    /// </summary>
+    public string? GetFloorFlavor(int floorNumber) =>
+        _floorFlavors.TryGetValue(floorNumber, out var s) ? s : null;
+
+    public void SetFloorFlavor(int floorNumber, string flavor) =>
+        _floorFlavors[floorNumber] = flavor;
 
     public VisibilityState[,] GetFogFor(Player player) =>
         GetFog(player.CurrentFloorNumber)

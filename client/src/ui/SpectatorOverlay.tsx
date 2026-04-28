@@ -72,9 +72,7 @@ export function SpectatorOverlay({ snapshot, onSpectate }: SpectatorOverlayProps
                         setPickerOpen(false);
                       }}
                     >
-                      <span className="spectator-target-name">
-                        Player {t.id.slice(0, 4).toUpperCase()}
-                      </span>
+                      <span className="spectator-target-name">{t.username}</span>
                       <span className="spectator-target-meta">
                         Floor {t.floorNumber}
                         {t.inCombat ? " · ⚔" : ""}
@@ -90,9 +88,16 @@ export function SpectatorOverlay({ snapshot, onSpectate }: SpectatorOverlayProps
     );
   }
 
+  // The target may have already disappeared from the picker list (e.g. they
+  // descended a floor and the snapshot hasn't refreshed yet). Fall back to a
+  // truncated id rather than crashing — the next snapshot will refresh it.
+  const targetUsername =
+    targets.find((t) => t.id === targetId)?.username ??
+    targetId!.slice(0, 4).toUpperCase();
+
   return (
     <div className="spectator-banner">
-      <span>👁 Spectating Player {targetId!.slice(0, 4).toUpperCase()}</span>
+      <span>👁 Spectating {targetUsername}</span>
       <button
         type="button"
         className="spectator-switch"

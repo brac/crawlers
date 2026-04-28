@@ -1,16 +1,17 @@
 using Crawlers.Domain.Enums;
 using Crawlers.Domain.Models;
 using Crawlers.Generation;
+using Crawlers.Server.Persistence;
 using Crawlers.Server.Sessions;
 
 namespace Crawlers.Server.Logic;
 
 /// <summary>
 /// Handles transition to the next dungeon floor when a player is standing
-/// on a stairs-down tile. The next floor is generated deterministically from
-/// the session's initial seed (so two players who descend to the same floor
-/// independently arrive in the same dungeon), or reused if a teammate has
-/// already been there. Player HP and inventory carry over.
+/// on a stairs-down tile. The next floor is loaded from the canonical
+/// world (Step 2 of the persistent-world phase) — two players descending
+/// to floor N from any session see the same dungeon — and reused if a
+/// teammate has already been there. Player HP and inventory carry over.
 ///
 /// Caller holds <see cref="SessionState.SyncRoot"/>.
 /// </summary>
@@ -18,8 +19,17 @@ public class DescendService
 {
     private const int MaxEnemyCount = 16;
 
-    private readonly BspFloorGenerator _floorGen = new();
+    private readonly IFloorWorldService _world;
+    private readonly ICorpseService _corpses;
+    private readonly IWorldStatsService? _stats;
     private readonly EntityPlacer _entityPlacer = new();
+
+    public DescendService(IFloorWorldService world, ICorpseService corpses, IWorldStatsService? stats = null)
+    {
+        _world = world;
+        _corpses = corpses;
+        _stats = stats;
+    }
 
     public bool TryDescend(SessionState state, Guid playerId)
     {
@@ -74,18 +84,16 @@ public class DescendService
 
     private Floor GenerateFloor(SessionState state, int floorNumber)
     {
-        int seed = state.InitialSeed + (floorNumber - 1);
+        var floor = _world.LoadFloorForSession(floorNumber, state.Session.Id);
 
-        var floor = _floorGen.Generate(new GenerationConfig
-        {
-            SessionId = state.Session.Id,
-            FloorNumber = floorNumber,
-            Seed = seed
-        });
-
-        // Difficulty scaling: +1 enemy per floor, capped.
+        // Difficulty scaling: +1 enemy per floor, capped. Enemy RNG is
+        // derived from the canonical floor seed so two sessions on the
+        // same floor place enemies the same way (the only source of
+        // session-to-session enemy variance is left intentionally as
+        // their HP/death state, not their starting positions).
         int enemyCount = Math.Min(EntityPlacer.DefaultEnemyCount + (floorNumber - 1), MaxEnemyCount);
-        _entityPlacer.Place(floor, new Random(seed ^ 0x5af3107a), enemyCount);
+        _entityPlacer.PlaceEnemies(floor, new Random(floor.Seed ^ 0x5af3107a), enemyCount);
+        PersistentCorpseHydrator.Hydrate(floor, _corpses, state, _stats);
 
         state.AddFloor(floor);
         return floor;

@@ -29,11 +29,17 @@ if (hasDb)
         options.UseNpgsql(connectionString));
     builder.Services.AddSingleton<IRunHistoryService, RunHistoryService>();
     builder.Services.AddSingleton<ICorpseService, CorpseService>();
+    builder.Services.AddSingleton<IPlayerIdentityService, PlayerIdentityService>();
+    builder.Services.AddSingleton<IFloorWorldService, FloorWorldService>();
+    builder.Services.AddSingleton<IWorldStatsService, WorldStatsService>();
 }
 else
 {
     builder.Services.AddSingleton<IRunHistoryService, NullRunHistoryService>();
     builder.Services.AddSingleton<ICorpseService, NullCorpseService>();
+    builder.Services.AddSingleton<IPlayerIdentityService, NullPlayerIdentityService>();
+    builder.Services.AddSingleton<IFloorWorldService, NullFloorWorldService>();
+    builder.Services.AddSingleton<IWorldStatsService, NullWorldStatsService>();
 }
 
 const string GameCorsPolicy = "GameClient";
@@ -73,10 +79,27 @@ else
         "ConnectionStrings:DefaultConnection is empty — run history will not be persisted.");
 }
 
+// World mint runs after migrations apply (so the floors table exists) and
+// before any hub starts accepting connections. Idempotent — re-mint only
+// happens when WorldConstants.Version has been bumped past what's in the
+// rows; otherwise existing floors are loaded from the DB into the in-
+// memory cache for fast per-session lookups.
+{
+    var worldService = app.Services.GetRequiredService<IFloorWorldService>();
+    await worldService.MintAsync(WorldConstants.InitialFloorCount);
+}
+
 app.UseCors(GameCorsPolicy);
 
 app.MapGet("/", () => "Crawlers server up. SignalR hubs at /lobby and /game.");
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+// Step 12: aggregate world stats. Public, anonymous — no Identify
+// required, anyone can hit the URL and see the graveyard's totals.
+app.MapGet("/api/world-stats", async (IWorldStatsService stats, CancellationToken ct) =>
+{
+    var dto = await stats.GetGlobalStatsAsync(ct);
+    return Results.Ok(dto);
+});
 app.MapHub<LobbyHub>("/lobby");
 app.MapHub<GameHub>("/game");
 

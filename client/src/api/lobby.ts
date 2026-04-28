@@ -18,6 +18,19 @@ export async function connectLobby(): Promise<HubConnection> {
   return connection;
 }
 
+// Asserts the persistent identity (UUID + username) for this connection.
+// Must be called before CreateRoom / JoinRoomByCode — the server gates
+// every lobby action on it and throws "NotIdentified" otherwise. Calling
+// it again with a different username renames the player; the UUID is
+// sticky for the life of the localStorage entry.
+export function identify(
+  connection: HubConnection,
+  playerId: string,
+  username: string,
+): Promise<void> {
+  return connection.invoke("Identify", playerId, username);
+}
+
 export function createRoom(
   connection: HubConnection,
 ): Promise<LobbyMembershipDto> {

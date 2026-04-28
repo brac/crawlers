@@ -3,6 +3,7 @@ using Crawlers.Domain.Enums;
 using Crawlers.Domain.Models;
 using Crawlers.Generation;
 using Crawlers.Server.Logic;
+using Crawlers.Server.Persistence;
 
 namespace Crawlers.Server.Sessions;
 
@@ -11,8 +12,17 @@ public class SessionManager
     private const int MaxEnemyCount = 16;
 
     private readonly ConcurrentDictionary<Guid, SessionState> _sessions = new();
-    private readonly BspFloorGenerator _floorGen = new();
+    private readonly IFloorWorldService _world;
+    private readonly ICorpseService _corpses;
+    private readonly IWorldStatsService? _stats;
     private readonly EntityPlacer _entityPlacer = new();
+
+    public SessionManager(IFloorWorldService world, ICorpseService corpses, IWorldStatsService? stats = null)
+    {
+        _world = world;
+        _corpses = corpses;
+        _stats = stats;
+    }
 
     /// <summary>
     /// Build a fresh session and seat each provided player on their start
@@ -26,20 +36,19 @@ public class SessionManager
     /// from the session seed so a teammate descending later sees the same
     /// dungeon a teammate who started there sees.
     /// </summary>
-    public SessionState CreateSession(IReadOnlyList<PlayerStartState> startStates, int? seed = null)
+    public SessionState CreateSession(IReadOnlyList<PlayerStartState> startStates)
     {
         if (startStates.Count == 0)
             throw new ArgumentException("Need at least one player to start a session.", nameof(startStates));
 
         var sessionId = Guid.NewGuid();
-        var actualSeed = seed ?? Random.Shared.Next();
 
         var session = new Session
         {
             Id = sessionId,
             CreatedAt = DateTimeOffset.UtcNow
         };
-        var state = new SessionState(session) { InitialSeed = actualSeed };
+        var state = new SessionState(session);
 
         // Group by starting floor so we generate each needed floor once and
         // BFS-spawn the cohort that starts there together.
@@ -56,6 +65,7 @@ public class SessionManager
                 var player = new Player
                 {
                     Id = start.PlayerId,
+                    Username = start.Username,
                     SessionId = sessionId,
                     Position = spawns[i],
                     Stats = start.Stats,
@@ -81,14 +91,14 @@ public class SessionManager
     /// stats. Used by tests; production sessions are built via the lobby
     /// bridge with the multi-player overload.
     /// </summary>
-    public SessionState CreateSoloSession(int? seed = null)
+    public SessionState CreateSoloSession()
     {
         var start = new PlayerStartState
         {
             PlayerId = Guid.NewGuid(),
             Stats = DefaultPlayerStats()
         };
-        return CreateSession(new[] { start }, seed);
+        return CreateSession(new[] { start });
     }
 
     /// <summary>
@@ -125,6 +135,7 @@ public class SessionManager
             var player = new Player
             {
                 Id = start.PlayerId,
+                Username = start.Username,
                 SessionId = sessionId,
                 Position = pos,
                 Stats = start.Stats,
@@ -168,27 +179,24 @@ public class SessionManager
     };
 
     /// <summary>
-    /// Generate the floor for <paramref name="floorNumber"/> if the session
-    /// hasn't loaded it yet, using the deterministic seed scheme
-    /// <c>InitialSeed + (floorNumber - 1)</c> shared with
-    /// <see cref="DescendService"/>. Returns the existing floor if already
-    /// present.
+    /// Load <paramref name="floorNumber"/> into the session from the
+    /// canonical world (Step 2 of the persistent-world phase). The world
+    /// service hands back a freshly cloned grid so per-session door bumps
+    /// don't mutate the shared world; we then place this session's enemies
+    /// using an RNG derived from the canonical seed (so two sessions on
+    /// the same floor see enemies in the same starting positions). No-op
+    /// if the floor is already loaded.
     /// </summary>
     private Floor EnsureFloor(SessionState state, int floorNumber)
     {
         var existing = state.GetFloor(floorNumber);
         if (existing is not null) return existing;
 
-        int seed = state.InitialSeed + (floorNumber - 1);
-        var floor = _floorGen.Generate(new GenerationConfig
-        {
-            SessionId = state.Session.Id,
-            FloorNumber = floorNumber,
-            Seed = seed
-        });
+        var floor = _world.LoadFloorForSession(floorNumber, state.Session.Id);
         // +1 enemy per floor depth, capped — same scaling DescendService uses.
         int enemyCount = Math.Min(EntityPlacer.DefaultEnemyCount + (floorNumber - 1), MaxEnemyCount);
-        _entityPlacer.Place(floor, new Random(seed ^ 0x5af3107a), enemyCount);
+        _entityPlacer.PlaceEnemies(floor, new Random(floor.Seed ^ 0x5af3107a), enemyCount);
+        PersistentCorpseHydrator.Hydrate(floor, _corpses, state, _stats);
         state.AddFloor(floor);
         return floor;
     }
