@@ -16,6 +16,7 @@ import {
   ChestKind,
   CombatEventKind,
   EntityType,
+  GameMode,
   TileType,
   VisibilityState,
 } from "../api/types";
@@ -502,6 +503,12 @@ export class DungeonRenderer {
     this.updateEntities(snapshot, snap);
     this.updatePlayer(snapshot, snap);
     this.updateOtherPlayers(snapshot, snap);
+    // Step polish — when in combat, point the player at the enemy so
+    // their swings land in the visually correct direction. Enemies don't
+    // move during combat, so this is a per-snapshot idempotent orient
+    // (safe to run every tick — faceHorizontally is a no-op when the
+    // facing is already correct).
+    this.orientForCombat(snapshot);
     if (snap) this.centerCameraOnPlayer();
   }
 
@@ -1005,6 +1012,37 @@ export class DungeonRenderer {
     const wantFacesLeft = dir === "left";
     // anchor.x is 0.5 on characters, so scale.x = -1 mirrors in place.
     t.sprite.scale.x = naturalFacesLeft === wantFacesLeft ? 1 : -1;
+  }
+
+  /// While in combat, orient the player toward the enemy so the
+  /// swing/lunge animation points the right way and the held-weapon
+  /// sprite mirrors with the body. Picks the closest alive enemy on
+  /// the snapshot's floor (engagement guarantees one is in range).
+  /// dx === 0 keeps the current facing — same-column foes don't have a
+  /// horizontal "side" so flipping is meaningless.
+  private orientForCombat(snapshot: GameStateSnapshotDto) {
+    if (!this.playerSprite) return;
+    if (snapshot.mode !== GameMode.Combat) return;
+
+    const px = snapshot.player.x;
+    const py = snapshot.player.y;
+    let target: { x: number; y: number } | null = null;
+    let bestDist = Infinity;
+    for (const e of snapshot.floor.entities) {
+      if (e.type !== EntityType.Enemy) continue;
+      const dx = Math.abs(e.x - px);
+      const dy = Math.abs(e.y - py);
+      const cheb = Math.max(dx, dy);
+      if (cheb < bestDist) {
+        bestDist = cheb;
+        target = { x: e.x, y: e.y };
+      }
+    }
+    if (!target) return;
+
+    const dx = target.x - px;
+    if (dx > 0) this.faceHorizontally(this.playerSprite, "right");
+    else if (dx < 0) this.faceHorizontally(this.playerSprite, "left");
   }
 
   private entityTargetPosition(e: EntityDto): { x: number; y: number } {
