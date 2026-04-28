@@ -42,9 +42,13 @@
   },
 
   "items": {
-    "Healing Draught": { "atlas": "main", "frame": [288, 352, 16, 16], "spriteName": "flask_red" },
-    "Bone Charm":      { "atlas": "main", "frame": [288, 432, 16, 16], "spriteName": "skull" },
-    "Corpse":          { "atlas": "main", "frame": [128, 100, 16, 28], "spriteName": "knight_m_idle_0" }
+    "Healing Draught":         { "atlas": "main", "frame": [288, 352, 16, 16], "spriteName": "flask_red" },
+    "Greater Healing Potion":  { "atlas": "main", "frame": [304, 352, 16, 16], "spriteName": "flask_red_big" },
+    "Strength Tonic":          { "atlas": "main", "frame": [320, 352, 16, 16], "spriteName": "flask_yellow" },
+    "Quickness Vial":          { "atlas": "main", "frame": [336, 352, 16, 16], "spriteName": "flask_blue" },
+    "Antidote":                { "atlas": "main", "frame": [288, 368, 16, 16], "spriteName": "flask_green" },
+    "Bone Charm":              { "atlas": "main", "frame": [288, 432, 16, 16], "spriteName": "skull" },
+    "Corpse":                  { "atlas": "main", "frame": [128, 100, 16, 28], "spriteName": "knight_m_idle_0" }
   },
 
   "characters": {
@@ -144,7 +148,7 @@
         "run":  { "atlas": "main", "origin": [432, 273], "frameCount": 4, "frameStep": [16, 0], "fps": 12 }
       }
     },
-    "MaskedOrc": {
+    "Masked Orc": {
       "spriteName": "masked_orc",
       "size": [16, 23],
       "anchor": [0.5, 1.0],
@@ -153,7 +157,7 @@
         "run":  { "atlas": "main", "origin": [432, 153], "frameCount": 4, "frameStep": [16, 0], "fps": 12 }
       }
     },
-    "BigZombie": {
+    "Big Zombie": {
       "spriteName": "big_zombie",
       "size": [32, 36],
       "anchor": [0.5, 1.0],
@@ -171,13 +175,23 @@
         "run":  { "atlas": "main", "origin": [144, 380], "frameCount": 4, "frameStep": [32, 0], "fps": 8 }
       }
     },
-    "BigDemon": {
+    "Big Demon": {
       "spriteName": "big_demon",
       "size": [32, 36],
       "anchor": [0.5, 1.0],
+      "scale": 1.35,
       "animations": {
         "idle": { "atlas": "main", "origin": [16, 428], "frameCount": 4, "frameStep": [32, 0], "fps": 4 },
         "run":  { "atlas": "main", "origin": [144, 428], "frameCount": 4, "frameStep": [32, 0], "fps": 8 }
+      }
+    },
+    "Mimic": {
+      "spriteName": "mimic_enemy",
+      "size": [16, 16],
+      "anchor": [0.5, 1.0],
+      "animations": {
+        "idle": { "atlas": "main", "origin": [304, 432], "frameCount": 3, "frameStep": [16, 0], "fps": 4 },
+        "run":  { "atlas": "main", "origin": [304, 432], "frameCount": 3, "frameStep": [16, 0], "fps": 6 }
       }
     }
   },
@@ -190,16 +204,35 @@
     "frame_top":   { "atlas": "main", "frame": [32, 224, 32, 16] }
   },
 
+  "effects": {
+    "_comment": "Step 3.4 — transient animation strips. Coin is a 2-frame spinning coin used by the gold-burst FX on chest open.",
+    "Coin": [
+      { "atlas": "main", "frame": [288, 384, 16, 16] },
+      { "atlas": "main", "frame": [304, 384, 16, 16] }
+    ]
+  },
+
+  "chests": {
+    "StandardClosed":  { "atlas": "main", "frame": [304, 416, 16, 16], "spriteName": "chest_loot_closed" },
+    "StandardOpening": { "atlas": "main", "frame": [320, 416, 16, 16], "spriteName": "chest_loot_opening" },
+    "StandardOpen":    { "atlas": "main", "frame": [336, 416, 16, 16], "spriteName": "chest_loot_open" },
+    "EmptyClosed":     { "atlas": "main", "frame": [304, 400, 16, 16], "spriteName": "chest_empty_closed" },
+    "EmptyOpening":    { "atlas": "main", "frame": [320, 400, 16, 16], "spriteName": "chest_empty_opening" },
+    "EmptyOpen":       { "atlas": "main", "frame": [336, 400, 16, 16], "spriteName": "chest_empty_open" },
+    "MimicClosed":     { "atlas": "main", "frame": [304, 432, 16, 16], "spriteName": "chest_mimic_closed" },
+    "MimicOpening":    { "atlas": "main", "frame": [320, 432, 16, 16], "spriteName": "chest_mimic_opening" },
+    "MimicOpen":       { "atlas": "main", "frame": [336, 432, 16, 16], "spriteName": "chest_mimic_open" }
+  },
+
   "weapons": {
-    "knight_sword":  { "atlas": "main", "frame": [339, 98, 10, 29] },
-    "regular_sword": { "atlas": "main", "frame": [323, 10, 10, 21] },
-    "rusty_sword":   { "atlas": "main", "frame": [307, 10, 10, 21] },
-    "duel_sword":    { "atlas": "main", "frame": [325, 97, 9, 30] },
-    "anime_sword":   { "atlas": "main", "frame": [322, 65, 12, 30] },
-    "katana":        { "atlas": "main", "frame": [293, 66, 6, 29] },
-    "knife":         { "atlas": "main", "frame": [293, 10, 6, 13] },
-    "spear":         { "atlas": "main", "frame": [309, 161, 6, 30] },
-    "axe":           { "atlas": "main", "frame": [341, 74, 9, 21] },
-    "bow":           { "atlas": "main", "frame": [289, 195, 14, 26] }
+    "Knight Sword":   { "atlas": "main", "frame": [339, 98, 10, 29] },
+    "Regular Sword":  { "atlas": "main", "frame": [323, 10, 10, 21] },
+    "Rusty Sword":    { "atlas": "main", "frame": [307, 10, 10, 21] },
+    "Duel Sword":     { "atlas": "main", "frame": [325, 97, 9, 30] },
+    "Anime Sword":    { "atlas": "main", "frame": [322, 65, 12, 30] },
+    "Katana":         { "atlas": "main", "frame": [293, 66, 6, 29] },
+    "Knife":          { "atlas": "main", "frame": [293, 10, 6, 13] },
+    "Spear":          { "atlas": "main", "frame": [309, 161, 6, 30] },
+    "Axe":            { "atlas": "main", "frame": [341, 74, 9, 21] }
   }
 }

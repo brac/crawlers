@@ -19,6 +19,19 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Difficulty curve, loaded at server startup by FloorScalingLoader.
+         Editable in repo without recompile; restart the server to pick up
+         changes. The .NET SDK auto-includes the JSON as Content, so we
+         only need <Update> here to opt into CopyToOutputDirectory. -->
+    <Content Update="Config\floor-scaling.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Update="Config\weapons.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
   <!-- Crawlers.Tests can reach internal types directly so we don't have to
        widen the public API of helpers like FloorFlavorPicker (Step 12) just
        to write a unit test against them. -->

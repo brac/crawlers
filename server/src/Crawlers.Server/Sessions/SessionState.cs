@@ -56,6 +56,7 @@ public class SessionState
     private readonly Dictionary<int, VisibilityState[,]> _fogs = new();
     private readonly Dictionary<int, IReadOnlyList<Crawlers.Server.Persistence.TileHeat>> _heatmaps = new();
     private readonly Dictionary<int, string> _floorFlavors = new();
+    private readonly Dictionary<int, string> _floorTints = new();
     private readonly Dictionary<Guid, ActiveCombat> _combats = new();
     private readonly Dictionary<Guid, string> _connections = new();
 
@@ -111,6 +112,18 @@ public class SessionState
 
     public void SetFloorFlavor(int floorNumber, string flavor) =>
         _floorFlavors[floorNumber] = flavor;
+
+    /// <summary>
+    /// Content-and-Depth Step 1 per-floor color tint. Stamped from the
+    /// floor-scaling.json entry when the floor is generated; null when
+    /// not yet loaded. The snapshot mapper falls back to "#ffffff"
+    /// (identity tint) when null so older floors don't crash the client.
+    /// </summary>
+    public string? GetFloorTint(int floorNumber) =>
+        _floorTints.TryGetValue(floorNumber, out var t) ? t : null;
+
+    public void SetFloorTint(int floorNumber, string tint) =>
+        _floorTints[floorNumber] = tint;
 
     public VisibilityState[,] GetFogFor(Player player) =>
         GetFog(player.CurrentFloorNumber)

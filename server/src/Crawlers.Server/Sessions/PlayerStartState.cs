@@ -26,6 +26,17 @@ public class PlayerStartState
     public List<Item> Inventory { get; init; } = new();
 
     /// <summary>
+    /// Step 3.4 — weapon to equip on session entry. Optional; null
+    /// triggers <c>SessionManager.DefaultEquippedWeapon()</c> (Regular
+    /// Sword baseline). Continuation phase will populate this from the
+    /// saved run state.
+    /// </summary>
+    public WeaponBlock? EquippedWeapon { get; init; }
+
+    /// <summary>Display name of the supplied <see cref="EquippedWeapon"/>.</summary>
+    public string? EquippedWeaponName { get; init; }
+
+    /// <summary>
     /// Floor the player begins on. For fresh starts this is always 1; for
     /// continuation it'll be the floor they saved on.
     /// </summary>

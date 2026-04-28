@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 interface FloorAnnouncerProps {
   floorNumber: number;
@@ -8,53 +8,49 @@ interface FloorAnnouncerProps {
 const VISIBLE_MS = 10_000; // hold time before fade-out
 const FADE_OUT_MS = 600; // matches the CSS transition
 
+type Phase = "visible" | "fading" | "hidden";
+
 /// Step 12 — bleak announcer line shown briefly at the bottom of the
-/// screen on every floor change. Hooks the floorNumber as the trigger:
-/// when it changes, the new flavor (server-picked, frozen per floor)
-/// fades in, holds, fades out. Suppresses itself on first mount so the
-/// initial join doesn't double up with the lobby → game transition,
-/// then re-fires on every subsequent descent.
+/// screen on every floor change. Re-fires only when (floorNumber, flavor)
+/// changes, so steady-state snapshots on the same floor don't re-trigger.
+///
+/// All setState lives inside async timer callbacks. The previous
+/// implementation set state synchronously in the effect body and tracked
+/// "last shown floor" via a ref, which broke under React 19 strict mode:
+/// the effect's cleanup cancelled the in-flight fade timers, and the
+/// re-fire early-returned because the ref already matched, leaving the
+/// banner stuck visible. This version trusts the dependency array to
+/// dedup re-renders and lets cleanup-then-re-fire schedule fresh timers,
+/// so the banner always clears on schedule.
 export function FloorAnnouncer({ floorNumber, flavor }: FloorAnnouncerProps) {
-  const [shown, setShown] = useState<{ floor: number; text: string } | null>(null);
-  const [visible, setVisible] = useState(false);
-  const lastFloorRef = useRef<number | null>(null);
-  const hideTimerRef = useRef<number | null>(null);
-  const clearTimerRef = useRef<number | null>(null);
+  const [phase, setPhase] = useState<Phase>("hidden");
+  const [text, setText] = useState<string | null>(null);
 
   useEffect(() => {
-    // Same floor — nothing to do. (Snapshots arrive every move; we only
-    // re-fire on actual floor change.)
-    if (lastFloorRef.current === floorNumber) return;
-    const isFirst = lastFloorRef.current === null;
-    lastFloorRef.current = floorNumber;
     if (!flavor) return;
 
-    setShown({ floor: floorNumber, text: flavor });
-    setVisible(true);
-
-    // Clear any in-flight timers from the previous floor's announcement.
-    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
-    if (clearTimerRef.current !== null) window.clearTimeout(clearTimerRef.current);
-
-    // First mount: hold a touch shorter so the player isn't waiting on
-    // text to clear before they get oriented.
-    const hold = isFirst ? VISIBLE_MS - 1000 : VISIBLE_MS;
-    hideTimerRef.current = window.setTimeout(() => setVisible(false), hold);
-    clearTimerRef.current = window.setTimeout(
-      () => setShown(null),
-      hold + FADE_OUT_MS,
-    );
+    const flavorText = flavor;
+    const showTimer = window.setTimeout(() => {
+      setText(flavorText);
+      setPhase("visible");
+    }, 0);
+    const fadeTimer = window.setTimeout(() => setPhase("fading"), VISIBLE_MS);
+    const clearTimer = window.setTimeout(() => {
+      setPhase("hidden");
+      setText(null);
+    }, VISIBLE_MS + FADE_OUT_MS);
 
     return () => {
-      if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
-      if (clearTimerRef.current !== null) window.clearTimeout(clearTimerRef.current);
+      window.clearTimeout(showTimer);
+      window.clearTimeout(fadeTimer);
+      window.clearTimeout(clearTimer);
     };
   }, [floorNumber, flavor]);
 
-  if (!shown) return null;
+  if (phase === "hidden" || text === null) return null;
   return (
-    <div className={`floor-announcer ${visible ? "visible" : ""}`}>
-      {shown.text}
+    <div className={`floor-announcer ${phase === "visible" ? "visible" : ""}`}>
+      {text}
     </div>
   );
 }

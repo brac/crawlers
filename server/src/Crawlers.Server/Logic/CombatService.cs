@@ -150,14 +150,31 @@ public class CombatService
 
             if (actorId == combat.EnemyId)
             {
+                // Bleed at start of enemy's turn.
+                if (TickEnemyBleed(enemy, round) && enemy.Stats.Hp <= 0) break;
                 EnemyTurn(state, combat, enemy, dice, round, exits);
+                // Poison at end of enemy's turn.
+                TickEnemyPoison(enemy, round);
+                StatusEffectHelper.Decrement(enemy.StatusEffects);
             }
             else
             {
                 if (!combat.HasParticipant(actorId)) continue;
                 var player = state.GetPlayer(actorId);
                 if (player is null || player.Stats.Hp <= 0) continue;
+
+                // Step 5 — Bleed at the START of the player's turn.
+                if (TickPlayerBleed(state, combat, player, enemy, round, exits)) continue;
+
                 PlayerTurn(state, combat, player, enemy, dice, round, exits);
+
+                // Player may have died from a counter or fled mid-turn —
+                // skip the end-of-turn poison + decrement in that case.
+                if (player.Stats.Hp > 0 && combat.HasParticipant(player.Id))
+                {
+                    TickPlayerPoison(state, combat, player, enemy, round, exits);
+                }
+                StatusEffectHelper.Decrement(player.StatusEffects);
             }
         }
 
@@ -515,6 +532,120 @@ public class CombatService
             Description = crit
                 ? $"The {enemy.Name} crits Player {tag} for {dmg}! ({newHp}/{player.Stats.MaxHp})"
                 : $"The {enemy.Name} hits Player {tag} for {dmg}. ({newHp}/{player.Stats.MaxHp})"
+        });
+
+        // Step 5 — apply on-hit status if this archetype inflicts one
+        // and the bite didn't already kill the target. Stacking is the
+        // refresh-to-longer rule (StatusEffectHelper.Apply).
+        if (enemy.OnHitStatus is { } onHit && player.Stats.Hp > 0)
+        {
+            StatusEffectHelper.Apply(player.StatusEffects, onHit);
+            round.Events.Add(new CombatEvent
+            {
+                Kind = CombatEventKind.Narrative,
+                ActorId = enemy.Id,
+                TargetId = player.Id,
+                Description = $"Player {tag} is {StatusGerund(onHit.Kind)}! ({onHit.RoundsRemaining} rounds, {onHit.DamagePerTick}/tick)"
+            });
+        }
+    }
+
+    private static string StatusGerund(StatusEffectKind kind) => kind switch
+    {
+        StatusEffectKind.Bleed => "bleeding",
+        StatusEffectKind.Poison => "poisoned",
+        _ => "afflicted"
+    };
+
+    /// <summary>
+    /// Step 5 — start-of-turn Bleed tick on a player. Returns true if
+    /// the tick killed the player and the caller should skip the rest
+    /// of their turn. Damage flows through MarkPlayerDied so corpse +
+    /// run-end bookkeeping fire identically to combat-damage death.
+    /// </summary>
+    private static bool TickPlayerBleed(
+        SessionState state,
+        ActiveCombat combat,
+        Player player,
+        Entity enemy,
+        CombatRound round,
+        List<(Guid, CombatOutcome)> exits)
+    {
+        var dmg = StatusEffectHelper.TickDamage(player.StatusEffects, StatusEffectKind.Bleed);
+        if (dmg <= 0) return false;
+        var newHp = Math.Max(0, player.Stats.Hp - dmg);
+        player.Stats = player.Stats with { Hp = newHp };
+        round.Events.Add(new CombatEvent
+        {
+            Kind = CombatEventKind.Narrative,
+            TargetId = player.Id,
+            Damage = dmg,
+            Description = $"Player {ShortTag(player.Id)} bleeds for {dmg}. ({newHp}/{player.Stats.MaxHp})"
+        });
+        if (newHp <= 0)
+        {
+            MarkPlayerDied(state, combat, player, enemy, round, exits);
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>End-of-turn Poison tick on a player. Same semantics as Bleed but at end of turn.</summary>
+    private static void TickPlayerPoison(
+        SessionState state,
+        ActiveCombat combat,
+        Player player,
+        Entity enemy,
+        CombatRound round,
+        List<(Guid, CombatOutcome)> exits)
+    {
+        var dmg = StatusEffectHelper.TickDamage(player.StatusEffects, StatusEffectKind.Poison);
+        if (dmg <= 0) return;
+        var newHp = Math.Max(0, player.Stats.Hp - dmg);
+        player.Stats = player.Stats with { Hp = newHp };
+        round.Events.Add(new CombatEvent
+        {
+            Kind = CombatEventKind.Narrative,
+            TargetId = player.Id,
+            Damage = dmg,
+            Description = $"Player {ShortTag(player.Id)} suffers {dmg} from poison. ({newHp}/{player.Stats.MaxHp})"
+        });
+        if (newHp <= 0)
+            MarkPlayerDied(state, combat, player, enemy, round, exits);
+    }
+
+    /// <summary>Bleed tick on the enemy. Returns true if any damage was applied.</summary>
+    private static bool TickEnemyBleed(Entity enemy, CombatRound round)
+    {
+        var dmg = StatusEffectHelper.TickDamage(enemy.StatusEffects, StatusEffectKind.Bleed);
+        if (dmg <= 0) return false;
+        var stats = enemy.Stats!;
+        var newHp = Math.Max(0, stats.Hp - dmg);
+        enemy.Stats = stats with { Hp = newHp };
+        round.Events.Add(new CombatEvent
+        {
+            Kind = CombatEventKind.Narrative,
+            TargetId = enemy.Id,
+            Damage = dmg,
+            Description = $"The {enemy.Name} bleeds for {dmg}. ({newHp}/{stats.MaxHp})"
+        });
+        return true;
+    }
+
+    /// <summary>End-of-turn Poison tick on the enemy.</summary>
+    private static void TickEnemyPoison(Entity enemy, CombatRound round)
+    {
+        var dmg = StatusEffectHelper.TickDamage(enemy.StatusEffects, StatusEffectKind.Poison);
+        if (dmg <= 0) return;
+        var stats = enemy.Stats!;
+        var newHp = Math.Max(0, stats.Hp - dmg);
+        enemy.Stats = stats with { Hp = newHp };
+        round.Events.Add(new CombatEvent
+        {
+            Kind = CombatEventKind.Narrative,
+            TargetId = enemy.Id,
+            Damage = dmg,
+            Description = $"The {enemy.Name} suffers {dmg} from poison. ({newHp}/{stats.MaxHp})"
         });
     }
 }

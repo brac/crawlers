@@ -1,6 +1,7 @@
 using Crawlers.Domain.Enums;
 using Crawlers.Domain.Models;
 using Crawlers.Generation;
+using Crawlers.Generation.Scaling;
 using Crawlers.Server.Persistence;
 using Crawlers.Server.Sessions;
 
@@ -17,18 +18,22 @@ namespace Crawlers.Server.Logic;
 /// </summary>
 public class DescendService
 {
-    private const int MaxEnemyCount = 16;
-
     private readonly IFloorWorldService _world;
     private readonly ICorpseService _corpses;
     private readonly IWorldStatsService? _stats;
+    private readonly FloorScalingTable _scaling;
     private readonly EntityPlacer _entityPlacer = new();
 
-    public DescendService(IFloorWorldService world, ICorpseService corpses, IWorldStatsService? stats = null)
+    public DescendService(
+        IFloorWorldService world,
+        ICorpseService corpses,
+        IWorldStatsService? stats = null,
+        FloorScalingTable? scaling = null)
     {
         _world = world;
         _corpses = corpses;
         _stats = stats;
+        _scaling = scaling ?? FloorScalingTable.Identity();
     }
 
     public bool TryDescend(SessionState state, Guid playerId)
@@ -86,16 +91,18 @@ public class DescendService
     {
         var floor = _world.LoadFloorForSession(floorNumber, state.Session.Id);
 
-        // Difficulty scaling: +1 enemy per floor, capped. Enemy RNG is
-        // derived from the canonical floor seed so two sessions on the
+        // Per-floor difficulty curve from Config/floor-scaling.json — drives
+        // enemy count, monster density, and HP/AC/damage scaling. Enemy RNG
+        // is derived from the canonical floor seed so two sessions on the
         // same floor place enemies the same way (the only source of
         // session-to-session enemy variance is left intentionally as
         // their HP/death state, not their starting positions).
-        int enemyCount = Math.Min(EntityPlacer.DefaultEnemyCount + (floorNumber - 1), MaxEnemyCount);
-        _entityPlacer.PlaceEnemies(floor, new Random(floor.Seed ^ 0x5af3107a), enemyCount);
+        var scaling = _scaling.For(floorNumber);
+        _entityPlacer.PlaceEnemies(floor, new Random(floor.Seed ^ 0x5af3107a), scaling);
         PersistentCorpseHydrator.Hydrate(floor, _corpses, state, _stats);
 
         state.AddFloor(floor);
+        state.SetFloorTint(floorNumber, scaling.Tint);
         return floor;
     }
 

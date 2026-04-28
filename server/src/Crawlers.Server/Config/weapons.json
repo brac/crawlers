@@ -1,0 +1,18 @@
+{
+  "_comment": "Weapon catalogue — loaded at server startup, referenced by per-floor weaponLoot pools in floor-scaling.json. Names match keys under client assets.json > weapons; the client uses the entity name to look up the sprite.",
+  "_axes": {
+    "damage":         "NdM+K dice. Higher count/sides = higher base damage; the floor-level damageMultiplier on enemies does NOT apply to player weapons (those scale by player progression, not floor depth).",
+    "initiativeMod":  "Added to the wielder's initiative roll in combat. Knives are fast (+2..+3); heavy blades / axes are slow (-1..-2)."
+  },
+  "weapons": [
+    { "name": "Knife",         "damage": { "count": 1, "sides": 4, "modifier": 0 }, "initiativeMod":  3 },
+    { "name": "Rusty Sword",   "damage": { "count": 1, "sides": 6, "modifier": 0 }, "initiativeMod":  1 },
+    { "name": "Regular Sword", "damage": { "count": 1, "sides": 6, "modifier": 1 }, "initiativeMod":  1 },
+    { "name": "Knight Sword",  "damage": { "count": 1, "sides": 8, "modifier": 1 }, "initiativeMod":  0 },
+    { "name": "Anime Sword",   "damage": { "count": 1, "sides": 8, "modifier": 2 }, "initiativeMod":  0 },
+    { "name": "Katana",        "damage": { "count": 1, "sides": 8, "modifier": 1 }, "initiativeMod":  2 },
+    { "name": "Spear",         "damage": { "count": 1, "sides": 8, "modifier": 0 }, "initiativeMod":  0 },
+    { "name": "Duel Sword",    "damage": { "count": 1, "sides": 10, "modifier": 2 }, "initiativeMod": -1 },
+    { "name": "Axe",           "damage": { "count": 1, "sides": 10, "modifier": 3 }, "initiativeMod": -2 }
+  ]
+}

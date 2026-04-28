@@ -41,7 +41,13 @@ export function Inventory({ items, usable, onUse }: InventoryProps) {
               }
             >
               <span className={`inventory-key ${active ? "active" : ""}`}>
-                {key !== undefined ? key : item.isConsumable ? "—" : "P"}
+                {key !== undefined
+                  ? key
+                  : item.isConsumable
+                    ? "—"
+                    : item.weapon !== null
+                      ? "W"
+                      : "P"}
               </span>
               <span className="inventory-body">
                 <span className="inventory-name">{item.name}</span>

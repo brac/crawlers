@@ -26,6 +26,11 @@ export interface CharacterEntry {
   size: [number, number];
   anchor: [number, number];
   flipX?: boolean;
+  // Optional uniform render-time scale multiplier. Default 1.0. Used to
+  // make a sprite read bigger than its sheet pixels — currently the
+  // floor-4 capstone (Big Demon) at 1.35× to give it the "uniquely the
+  // capstone" silhouette the design calls for.
+  scale?: number;
   animations: {
     idle: AnimStrip;
     run: AnimStrip;
@@ -56,6 +61,16 @@ export interface AssetManifest {
   characterExtras?: Record<string, CharacterEntry>;
   doors?: Record<string, FrameRef>;
   weapons?: Record<string, FrameRef>;
+  // Content-and-Depth Step 3 — chest visuals. Static FrameRefs (no
+  // idle/run animation); the renderer swaps the texture when a chest
+  // opens or a mimic reveals. Keys are ChestKind values from the server
+  // (Standard / Empty / Mimic).
+  chests?: Record<string, FrameRef>;
+  // Step 3.4 — transient FX animation strips. Each entry is an array
+  // of FrameRefs that the renderer plays as an AnimatedSprite (loop on,
+  // discard when off-screen / done). Currently: Coin = spinning-coin
+  // animation used by the gold-burst FX on chest open.
+  effects?: Record<string, FrameRef[]>;
 }
 
 // Deterministic 32-bit hash of three integers — used to pick stable per-cell
@@ -118,6 +133,32 @@ export class AssetLibrary {
   weaponTexture(name: string): Texture | null {
     const ref = this.manifest.weapons?.[name];
     return ref ? this.subTexture(ref) : null;
+  }
+
+  /// Step 3 — chest sprites by state name (Standard / Empty / Mimic).
+  /// 3.2 only uses Standard (closed); 3.3 swaps to Empty/Mimic on open.
+  chestTexture(name: string): Texture | null {
+    const ref = this.manifest.chests?.[name];
+    return ref ? this.subTexture(ref) : null;
+  }
+
+  /// Step 3.3 — full 3-frame open animation for a chest kind. Returns
+  /// [Closed, Opening, FullyOpen]. Missing entries collapse to whatever
+  /// declarations are present, but the manifest is expected to define
+  /// all three for each kind.
+  chestAnimationFrames(kindPrefix: "Standard" | "Empty" | "Mimic"): Texture[] {
+    const closed = this.chestTexture(`${kindPrefix}Closed`);
+    const opening = this.chestTexture(`${kindPrefix}Opening`);
+    const open = this.chestTexture(`${kindPrefix}Open`);
+    return [closed, opening, open].filter((t): t is Texture => t !== null);
+  }
+
+  /// Step 3.4 — frames for an FX animation strip (e.g. spinning coins).
+  /// Returns the textures in declaration order; empty when missing.
+  effectFrames(name: string): Texture[] {
+    const refs = this.manifest.effects?.[name];
+    if (!refs) return [];
+    return refs.map((r) => this.subTexture(r));
   }
 
   /**

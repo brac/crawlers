@@ -1,11 +1,23 @@
 using Crawlers.Domain.Enums;
 using Crawlers.Domain.Models;
+using Crawlers.Server.Persistence;
 using Crawlers.Server.Sessions;
 
 namespace Crawlers.Server.Logic;
 
 public class MovementService
 {
+    private readonly ChestService _chests;
+
+    public MovementService(ChestService? chests = null)
+    {
+        // Default to a fresh ChestService when no DI / test factory passes
+        // one — keeps the 14+ existing tests that build MovementService
+        // directly working without churning their call sites. Production
+        // DI in Program.cs always supplies the singleton.
+        _chests = chests ?? new ChestService();
+    }
+
     public bool TryMove(SessionState state, Guid playerId, MoveDirection direction)
     {
         var player = state.GetPlayer(playerId);
@@ -47,10 +59,108 @@ public class MovementService
         }
 
         player.Position = target;
+        // Order matters: pickup BEFORE chest open. Step 3.4 drops weapon
+        // loot on the chest's own tile so the weapon visually emerges
+        // from the chest. If we opened first, the just-dropped weapon
+        // would be at the player's tile and PickupItemsAt would auto-
+        // equip it on the same step — the player would never see the
+        // weapon sit on the chest. Running pickup first picks up
+        // anything that was already on the floor (e.g. items dropped
+        // last turn the player walked off the chest tile and back),
+        // then chest-open happens and the new weapon stays on the chest
+        // tile until the player steps off and back.
         PickupItemsAt(player, floor, target);
+        OpenChestsAt(state, player, target);
+        // Step 5 — Bleed / Poison continue to tick while the player
+        // walks around outside combat. Without this they'd freeze the
+        // moment combat ended and the HUD badges would lie about
+        // damage. Per-move tick keeps the burndown narrative honest
+        // and gives Antidote a real reason to be used outside combat.
+        TickStatusesPostMove(state, player, floor);
         MaybeLockBossRoomDoor(state, floor);
         FieldOfView.RecomputeForFloor(floor, fog, state.PlayersOnFloor(floor.FloorNumber));
         return true;
+    }
+
+    /// <summary>
+    /// Step 5.G — apply Bleed (start-of-turn-equivalent) and Poison
+    /// (end-of-turn-equivalent) ticks to the player at the end of a
+    /// successful move, then decrement durations. If the ticks drop
+    /// the player to 0 HP, run the same death sequence combat uses
+    /// (Mode=Resolution, DiedAt, CauseOfDeath, drop a corpse). No-op
+    /// when the player has no active statuses.
+    /// </summary>
+    private static void TickStatusesPostMove(SessionState state, Player player, Floor floor)
+    {
+        if (player.StatusEffects.Count == 0) return;
+
+        var bleed = StatusEffectHelper.TickDamage(player.StatusEffects, StatusEffectKind.Bleed);
+        if (bleed > 0)
+        {
+            player.Stats = player.Stats with { Hp = Math.Max(0, player.Stats.Hp - bleed) };
+            if (player.Stats.Hp <= 0)
+            {
+                MarkPlayerDiedFromStatus(state, player, floor, "Bled out");
+                return;
+            }
+        }
+
+        var poison = StatusEffectHelper.TickDamage(player.StatusEffects, StatusEffectKind.Poison);
+        if (poison > 0)
+        {
+            player.Stats = player.Stats with { Hp = Math.Max(0, player.Stats.Hp - poison) };
+            if (player.Stats.Hp <= 0)
+            {
+                MarkPlayerDiedFromStatus(state, player, floor, "Succumbed to poison");
+                return;
+            }
+        }
+
+        StatusEffectHelper.Decrement(player.StatusEffects);
+    }
+
+    /// <summary>
+    /// Non-combat death sequence — mirrors CombatService.MarkPlayerDied
+    /// without the combat-log bookkeeping. Drops a corpse, flips the
+    /// player to Resolution, and sets DiedAt + CauseOfDeath. The
+    /// run-end check elsewhere will pick up the dead player on the
+    /// next sweep just as it would for a combat death.
+    /// </summary>
+    private static void MarkPlayerDiedFromStatus(
+        SessionState state, Player player, Floor floor, string cause)
+    {
+        player.Mode = GameMode.Resolution;
+        player.DiedAt = DateTimeOffset.UtcNow;
+        player.CauseOfDeath = cause;
+
+        var displayPos = CorpsePlacement.PickFreeTile(floor, player.Position, Random.Shared);
+        floor.Entities.Add(new Entity
+        {
+            Id = Guid.NewGuid(),
+            FloorId = floor.Id,
+            Type = EntityType.Corpse,
+            Name = "Corpse",
+            Position = displayPos,
+            State = EntityState.Alive,
+            PlayerId = player.Id,
+            DiedAt = player.DiedAt,
+            Username = string.IsNullOrEmpty(player.Username) ? null : player.Username,
+            KillerType = cause
+        });
+    }
+
+    private void OpenChestsAt(SessionState state, Player player, Position target)
+    {
+        var floor = state.GetFloorFor(player);
+        var chests = floor.Entities
+            .Where(e => e.Type == EntityType.Chest
+                        && !e.IsOpen
+                        && e.Position.Equals(target))
+            .ToList();
+        foreach (var chest in chests)
+        {
+            _chests.TryOpen(state, player.Id, chest.Id);
+        }
     }
 
     /// <summary>
@@ -86,6 +196,13 @@ public class MovementService
         p.X >= b.X && p.X < b.X + b.Width &&
         p.Y >= b.Y && p.Y < b.Y + b.Height;
 
+    /// <summary>
+    /// Step 4 — inventory capacity. Pickup of a 5th consumable is
+    /// rejected (item stays on the floor); weapons are exempt because
+    /// they replace the equipped slot rather than entering inventory.
+    /// </summary>
+    private const int MaxInventorySlots = 4;
+
     private static void PickupItemsAt(Player player, Floor floor, Position p)
     {
         // Snapshot the matches first so we can mutate floor.Entities safely.
@@ -97,9 +214,32 @@ public class MovementService
             .ToList();
         foreach (var entity in picked)
         {
-            player.Inventory.Add(entity.Item!);
-            // Remove from floor; alternatively mark Fled to keep an audit trail.
-            floor.Entities.Remove(entity);
+            var item = entity.Item!;
+            // Step 3.4 — weapon items REPLACE the player's equipped slot
+            // rather than going into Inventory. The previous weapon is
+            // discarded (we don't drop it back on the floor — keeps the
+            // pickup loop simple; future polish can preserve the swap).
+            // Stats.Damage/InitiativeMod are rebuilt from the new
+            // weapon so combat picks them up immediately.
+            if (item.Weapon is { } weapon)
+            {
+                player.EquippedWeapon = weapon;
+                player.EquippedWeaponName = item.Name;
+                player.Stats = player.Stats with
+                {
+                    Damage = weapon.Damage,
+                    InitiativeMod = weapon.InitiativeMod
+                };
+                floor.Entities.Remove(entity);
+            }
+            else
+            {
+                // Step 4 — capacity check. Inventory full → leave on floor.
+                // The player can come back for it after using something.
+                if (player.Inventory.Count >= MaxInventorySlots) continue;
+                player.Inventory.Add(item);
+                floor.Entities.Remove(entity);
+            }
         }
     }
 

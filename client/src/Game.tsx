@@ -18,6 +18,7 @@ import type { CorpseTooltipInfo } from "./game/DungeonRenderer";
 import { CombatLog } from "./ui/CombatLog";
 import { CorpseTooltip } from "./ui/CorpseTooltip";
 import { FloorAnnouncer } from "./ui/FloorAnnouncer";
+import { FloorTitleCard } from "./ui/FloorTitleCard";
 import { Hud } from "./ui/Hud";
 import { Inventory } from "./ui/Inventory";
 import { MobileControls } from "./ui/MobileControls";
@@ -85,6 +86,7 @@ export function Game({ assets, sessionId, localPlayerId, onOpenStats }: GameProp
     },
     [],
   );
+
 
   useEffect(() => {
     let cancelled = false;
@@ -261,6 +263,12 @@ export function Game({ assets, sessionId, localPlayerId, onOpenStats }: GameProp
         <FloorAnnouncer
           floorNumber={snapshot.floorNumber}
           flavor={snapshot.floor.flavor}
+        />
+      )}
+      {!runOver && snapshot && (
+        <FloorTitleCard
+          floorNumber={snapshot.floorNumber}
+          floorName={snapshot.floor.floorName}
         />
       )}
       {!runOver && (

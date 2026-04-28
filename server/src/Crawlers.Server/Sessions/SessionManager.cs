@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Crawlers.Domain.Enums;
 using Crawlers.Domain.Models;
 using Crawlers.Generation;
+using Crawlers.Generation.Scaling;
 using Crawlers.Server.Logic;
 using Crawlers.Server.Persistence;
 
@@ -9,19 +10,23 @@ namespace Crawlers.Server.Sessions;
 
 public class SessionManager
 {
-    private const int MaxEnemyCount = 16;
-
     private readonly ConcurrentDictionary<Guid, SessionState> _sessions = new();
     private readonly IFloorWorldService _world;
     private readonly ICorpseService _corpses;
     private readonly IWorldStatsService? _stats;
+    private readonly FloorScalingTable _scaling;
     private readonly EntityPlacer _entityPlacer = new();
 
-    public SessionManager(IFloorWorldService world, ICorpseService corpses, IWorldStatsService? stats = null)
+    public SessionManager(
+        IFloorWorldService world,
+        ICorpseService corpses,
+        IWorldStatsService? stats = null,
+        FloorScalingTable? scaling = null)
     {
         _world = world;
         _corpses = corpses;
         _stats = stats;
+        _scaling = scaling ?? FloorScalingTable.Identity();
     }
 
     /// <summary>
@@ -70,7 +75,9 @@ public class SessionManager
                     Position = spawns[i],
                     Stats = start.Stats,
                     CurrentFloorNumber = group.Key,
-                    DeepestFloorReached = group.Key
+                    DeepestFloorReached = group.Key,
+                    EquippedWeapon = start.EquippedWeapon ?? DefaultEquippedWeapon(),
+                    EquippedWeaponName = start.EquippedWeapon is null ? "Regular Sword" : start.EquippedWeaponName
                 };
                 foreach (var item in start.Inventory) player.Inventory.Add(item);
                 state.AddPlayer(player);
@@ -140,7 +147,9 @@ public class SessionManager
                 Position = pos,
                 Stats = start.Stats,
                 CurrentFloorNumber = start.FloorNumber,
-                DeepestFloorReached = start.FloorNumber
+                DeepestFloorReached = start.FloorNumber,
+                EquippedWeapon = start.EquippedWeapon ?? DefaultEquippedWeapon(),
+                EquippedWeaponName = start.EquippedWeapon is null ? "Regular Sword" : start.EquippedWeaponName
             };
             foreach (var item in start.Inventory) player.Inventory.Add(item);
             state.AddPlayer(player);
@@ -165,18 +174,31 @@ public class SessionManager
 
     public static EntityStats DefaultPlayerStats() => new()
     {
+        // Production values. Damage + InitiativeMod mirror the
+        // equipped Regular Sword (1d6+1, +1 init) so a player without
+        // an equipped slot for some reason still hits like one.
         Hp = 20,
         MaxHp = 20,
         Ac = 12,
         AttackMod = 2,
         Damage = new DiceRoll(1, 6, 1),
-        InitiativeMod = 0,
+        InitiativeMod = 1,
         Speed = 30,
         SightRadius = 5,
         StrMod = 1,
         DexMod = 1,
         ConMod = 1
     };
+
+    /// <summary>
+    /// Content-and-Depth Step 3.4 — every fresh player starts with a
+    /// Regular Sword equipped. Stats here mirror the entry in
+    /// <c>Config/weapons.json</c>; if you retune the JSON, retune this
+    /// too (or look it up via WeaponRegistry — but that adds a DI
+    /// surface to PlayerStartState that isn't worth it for a constant).
+    /// </summary>
+    public static WeaponBlock DefaultEquippedWeapon() =>
+        new(new DiceRoll(1, 6, 1), 1);
 
     /// <summary>
     /// Load <paramref name="floorNumber"/> into the session from the
@@ -193,11 +215,15 @@ public class SessionManager
         if (existing is not null) return existing;
 
         var floor = _world.LoadFloorForSession(floorNumber, state.Session.Id);
-        // +1 enemy per floor depth, capped — same scaling DescendService uses.
-        int enemyCount = Math.Min(EntityPlacer.DefaultEnemyCount + (floorNumber - 1), MaxEnemyCount);
-        _entityPlacer.PlaceEnemies(floor, new Random(floor.Seed ^ 0x5af3107a), enemyCount);
+        // Per-floor difficulty curve from Config/floor-scaling.json — same
+        // path DescendService uses, so the cohort that starts on floor N
+        // sees the same enemy density and scaling as a teammate who
+        // descended into it.
+        var scaling = _scaling.For(floorNumber);
+        _entityPlacer.PlaceEnemies(floor, new Random(floor.Seed ^ 0x5af3107a), scaling);
         PersistentCorpseHydrator.Hydrate(floor, _corpses, state, _stats);
         state.AddFloor(floor);
+        state.SetFloorTint(floorNumber, scaling.Tint);
         return floor;
     }
 

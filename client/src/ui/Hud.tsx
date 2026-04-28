@@ -1,5 +1,5 @@
-import type { GameStateSnapshotDto } from "../api/types";
-import { GameMode } from "../api/types";
+import type { GameStateSnapshotDto, StatusEffectDto } from "../api/types";
+import { GameMode, StatusEffectKind } from "../api/types";
 
 interface HudProps {
   snapshot: GameStateSnapshotDto | null;
@@ -55,6 +55,36 @@ export function Hud({ snapshot, status, onStairsDown }: HudProps) {
               </span>
             </div>
             <HpBar hp={snapshot.player.hp} maxHp={snapshot.player.maxHp} />
+            {snapshot.player.statusEffects.length > 0 && (
+              <div className="hud-row">
+                <span className="hud-label">Status</span>
+                <span className="hud-status-badges">
+                  {snapshot.player.statusEffects.map((s, i) => (
+                    <StatusBadge key={i} status={s} />
+                  ))}
+                </span>
+              </div>
+            )}
+            {snapshot.player.equippedWeaponName && (
+              <div className="hud-row">
+                <span className="hud-label">Wielding</span>
+                <span>
+                  {snapshot.player.equippedWeaponName}
+                  {snapshot.player.equippedWeapon && (
+                    <span className="hud-weapon-stats">
+                      {" "}
+                      ({formatDice(snapshot.player.equippedWeapon.damage)} dmg
+                      {" / "}
+                      {formatInit(snapshot.player.equippedWeapon.initiativeMod)} init)
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
+            <div className="hud-row">
+              <span className="hud-label">Gold</span>
+              <span className="hud-gold">◉ {snapshot.player.gold}</span>
+            </div>
             <div className="hud-row">
               <span className="hud-label">Visible enemies</span>
               <span>{snapshot.floor.entities.length}</span>
@@ -75,6 +105,30 @@ export function Hud({ snapshot, status, onStairsDown }: HudProps) {
       {/* Death banner / spectator UI lives in <SpectatorOverlay /> in Game.tsx. */}
     </>
   );
+}
+
+function StatusBadge({ status }: { status: StatusEffectDto }) {
+  const isBleed = status.kind === StatusEffectKind.Bleed;
+  const label = isBleed ? "Bleed" : "Poison";
+  const glyph = isBleed ? "🩸" : "☠";
+  return (
+    <span
+      className={`hud-status-badge ${isBleed ? "bleed" : "poison"}`}
+      title={`${label} — ${status.damagePerTick} dmg / round, ${status.roundsRemaining} round(s) left`}
+    >
+      {glyph} {status.roundsRemaining}
+    </span>
+  );
+}
+
+function formatDice(d: { count: number; sides: number; modifier: number }): string {
+  const dice = `${d.count}d${d.sides}`;
+  if (d.modifier === 0) return dice;
+  return d.modifier > 0 ? `${dice}+${d.modifier}` : `${dice}${d.modifier}`;
+}
+
+function formatInit(mod: number): string {
+  return mod > 0 ? `+${mod}` : `${mod}`;
 }
 
 function HpBar({ hp, maxHp }: { hp: number; maxHp: number }) {

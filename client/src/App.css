@@ -48,6 +48,62 @@
   align-self: center;
 }
 
+.hud-status-badges {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.hud-status-badge {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hud-status-badge.bleed {
+  background: rgba(180, 30, 30, 0.25);
+  color: #f5b3b3;
+}
+
+.hud-status-badge.poison {
+  background: rgba(60, 140, 60, 0.25);
+  color: #c5e8b8;
+}
+
+/* Step 9 — title card upper-screen on floor change. Sits in the top
+   quarter of the viewport so it doesn't cover the player or the
+   immediate dungeon area. Fades to 0 over 2 seconds. */
+.floor-title-card {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  pointer-events: none;
+  z-index: 800;
+  color: #ffffff;
+  font-size: clamp(28px, 6vw, 64px);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.85);
+  padding-left: 24px;
+  padding-right: 24px;
+  transition: opacity 2s ease-out;
+}
+
+.floor-title-card.visible {
+  opacity: 1;
+}
+
+.floor-title-card.fading {
+  opacity: 0;
+}
+
 .hud-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }

@@ -1,0 +1,177 @@
+{
+  "_comment": "Per-floor difficulty curve. Edit and restart the server to retune. Floors past the table clamp to the deepest entry.",
+  "_axes": {
+    "hpMultiplier":         "Multiplied against the enemy's base MaxHp (and Hp) at spawn.",
+    "damageMultiplier":     "Multiplied against the enemy's base expected damage (NdM+K). Dice shape preserved; flat modifier rebalanced.",
+    "acBonus":              "Flat addition to the enemy's base AC.",
+    "enemyCount":           "Target number of enemies on the floor (boss-room large monster is additive on Floor 1).",
+    "monsterDensity":       "Fraction (0..1) of eligible non-spawn rooms that get monsters. Lower = more empty rooms.",
+    "lootQualityMultiplier":"Reserved for Step 3 (chest loot tables). Not yet consumed.",
+    "goldMultiplier":       "Reserved for Step 6 (gold drops). Not yet consumed.",
+    "tint":                 "Per-floor color tint, applied as a multiplicative tint on the client world container. #ffffff = no tint.",
+    "monsterPool":          "Weighted list of EnemyArchetype names eligible to spawn in non-stairwell rooms on this floor (Step 2). Higher weight = more frequent.",
+    "stairwellBoss":        "Optional EnemyArchetype name placed on the stairs-down tile, sealed behind the boss door (Step 2 mini-boss work). Wires up the boss-door-lock + BossEntityId mechanic — players must kill the boss to leave the room. Omit/null for no boss.",
+    "chestCount":           "Number of chests placed on the floor (Step 3.2). 0 = no chests. Chests go in non-spawn, non-boss rooms.",
+    "chestKinds":           "Weighted distribution of ChestKind values (Standard / Empty / Mimic) — each placed chest rolls its kind independently. Tunes the loot/risk feel per floor: deeper floors lean more Mimic, fewer Empty.",
+    "weaponLoot":           "Step 3.4 — weighted weapon archetypes a Standard chest can drop on this floor. Names resolve through Config/weapons.json. Empty/missing → chest falls back to Healing Draught (legacy placeholder).",
+    "consumableLoot":       "Step 4 — weighted consumables a Standard chest can drop. The non-gold chest branch flips 50/50 between weaponLoot and consumableLoot when both are populated. Names resolve through ItemTemplates (currently: Healing Draught, Greater Healing Potion, Strength Tonic, Quickness Vial)."
+  },
+  "floors": [
+    {
+      "floor": 1,
+      "hpMultiplier":         1.00,
+      "damageMultiplier":     1.00,
+      "acBonus":              0,
+      "enemyCount":           7,
+      "monsterDensity":       0.60,
+      "lootQualityMultiplier":1.00,
+      "goldMultiplier":       1.00,
+      "tint":                 "#ffffff",
+      "stairwellBoss":        "BigSlug",
+      "chestCount":           1,
+      "chestKinds": [
+        { "kind": "Standard", "weight": 1 },
+        { "kind": "Empty",    "weight": 1 },
+        { "kind": "Mimic",    "weight": 1 }
+      ],
+      "weaponLoot": [
+        { "name": "Knife",         "weight": 3 },
+        { "name": "Rusty Sword",   "weight": 2 },
+        { "name": "Regular Sword", "weight": 1 }
+      ],
+      "consumableLoot": [
+        { "name": "Healing Draught",         "weight": 5 },
+        { "name": "Greater Healing Potion",  "weight": 1 }
+      ],
+      "monsterPool": [
+        { "archetype": "TinySlug", "weight": 1 }
+      ]
+    },
+    {
+      "floor": 2,
+      "hpMultiplier":         1.15,
+      "damageMultiplier":     1.12,
+      "acBonus":              0,
+      "enemyCount":           10,
+      "monsterDensity":       0.70,
+      "lootQualityMultiplier":1.10,
+      "goldMultiplier":       1.20,
+      "tint":                 "#cfe5cf",
+      "stairwellBoss":        "BigZombie",
+      "chestCount":           2,
+      "chestKinds": [
+        { "kind": "Standard", "weight": 7 },
+        { "kind": "Empty",    "weight": 2 },
+        { "kind": "Mimic",    "weight": 1 }
+      ],
+      "weaponLoot": [
+        { "name": "Knife",         "weight": 2 },
+        { "name": "Rusty Sword",   "weight": 3 },
+        { "name": "Regular Sword", "weight": 3 },
+        { "name": "Spear",         "weight": 1 },
+        { "name": "Katana",        "weight": 1 }
+      ],
+      "consumableLoot": [
+        { "name": "Healing Draught",         "weight": 4 },
+        { "name": "Greater Healing Potion",  "weight": 2 },
+        { "name": "Antidote",                "weight": 1 },
+        { "name": "Strength Tonic",          "weight": 1 },
+        { "name": "Quickness Vial",          "weight": 1 }
+      ],
+      "_poolNote":            "Small variety only — introduces the player to the basic threats. BigZombie sits behind the stairwell door.",
+      "monsterPool": [
+        { "archetype": "Husk",     "weight": 3 },
+        { "archetype": "Goblin",   "weight": 3 },
+        { "archetype": "Skeleton", "weight": 2 },
+        { "archetype": "Rasper",   "weight": 2 }
+      ]
+    },
+    {
+      "floor": 3,
+      "hpMultiplier":         1.32,
+      "damageMultiplier":     1.25,
+      "acBonus":              1,
+      "enemyCount":           13,
+      "monsterDensity":       0.85,
+      "lootQualityMultiplier":1.25,
+      "goldMultiplier":       1.50,
+      "tint":                 "#e5d3b6",
+      "stairwellBoss":        "Ogre",
+      "chestCount":           3,
+      "chestKinds": [
+        { "kind": "Standard", "weight": 6 },
+        { "kind": "Empty",    "weight": 2 },
+        { "kind": "Mimic",    "weight": 2 }
+      ],
+      "weaponLoot": [
+        { "name": "Regular Sword", "weight": 2 },
+        { "name": "Knight Sword",  "weight": 3 },
+        { "name": "Anime Sword",   "weight": 2 },
+        { "name": "Katana",        "weight": 2 },
+        { "name": "Spear",         "weight": 2 },
+        { "name": "Axe",           "weight": 1 }
+      ],
+      "consumableLoot": [
+        { "name": "Healing Draught",         "weight": 3 },
+        { "name": "Greater Healing Potion",  "weight": 3 },
+        { "name": "Antidote",                "weight": 2 },
+        { "name": "Strength Tonic",          "weight": 2 },
+        { "name": "Quickness Vial",          "weight": 2 }
+      ],
+      "_poolNote":            "Small + medium mix — orcs and the chort start showing up. The Ogre guards the stairwell.",
+      "monsterPool": [
+        { "archetype": "Husk",      "weight": 2 },
+        { "archetype": "Goblin",    "weight": 2 },
+        { "archetype": "Skeleton",  "weight": 2 },
+        { "archetype": "Rasper",    "weight": 2 },
+        { "archetype": "Hulk",      "weight": 2 },
+        { "archetype": "MaskedOrc", "weight": 2 },
+        { "archetype": "Chort",     "weight": 1 }
+      ]
+    },
+    {
+      "floor": 4,
+      "hpMultiplier":         1.50,
+      "damageMultiplier":     1.40,
+      "acBonus":              1,
+      "enemyCount":           16,
+      "monsterDensity":       0.95,
+      "lootQualityMultiplier":1.50,
+      "goldMultiplier":       2.00,
+      "tint":                 "#e6b4b4",
+      "stairwellBoss":        "BigDemon",
+      "chestCount":           3,
+      "chestKinds": [
+        { "kind": "Standard", "weight": 5 },
+        { "kind": "Empty",    "weight": 1 },
+        { "kind": "Mimic",    "weight": 4 }
+      ],
+      "weaponLoot": [
+        { "name": "Knight Sword", "weight": 2 },
+        { "name": "Anime Sword",  "weight": 3 },
+        { "name": "Katana",       "weight": 2 },
+        { "name": "Duel Sword",   "weight": 3 },
+        { "name": "Axe",          "weight": 3 }
+      ],
+      "consumableLoot": [
+        { "name": "Healing Draught",         "weight": 2 },
+        { "name": "Greater Healing Potion",  "weight": 4 },
+        { "name": "Antidote",                "weight": 3 },
+        { "name": "Strength Tonic",          "weight": 3 },
+        { "name": "Quickness Vial",          "weight": 3 }
+      ],
+      "_poolNote":            "Full mix — BigZombie + Ogre roll into regular rooms; the BigDemon is uniquely the floor-4 capstone (not in the pool).",
+      "monsterPool": [
+        { "archetype": "Husk",      "weight": 1 },
+        { "archetype": "Goblin",    "weight": 1 },
+        { "archetype": "Skeleton",  "weight": 1 },
+        { "archetype": "Rasper",    "weight": 1 },
+        { "archetype": "Hulk",      "weight": 2 },
+        { "archetype": "MaskedOrc", "weight": 2 },
+        { "archetype": "Chort",     "weight": 2 },
+        { "archetype": "BigZombie", "weight": 1 },
+        { "archetype": "Ogre",      "weight": 1 }
+      ]
+    }
+  ]
+}

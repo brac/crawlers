@@ -1,3 +1,6 @@
+using Crawlers.Generation.Scaling;
+using Crawlers.Generation.Weapons;
+using Crawlers.Server.Config;
 using Crawlers.Server.Hubs;
 using Crawlers.Server.Lobbies;
 using Crawlers.Server.Logic;
@@ -6,6 +9,21 @@ using Crawlers.Server.Sessions;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Difficulty curve. Loaded once at startup from Config/floor-scaling.json
+// and held as a singleton; DescendService consults it on every floor mint.
+// Editable in-repo and tunable by restart — no live reload.
+var floorScalingPath = Path.Combine(builder.Environment.ContentRootPath, "Config", "floor-scaling.json");
+var floorScalingTable = FloorScalingLoader.LoadFromFile(floorScalingPath);
+builder.Services.AddSingleton(floorScalingTable);
+
+// Step 3.4 weapon catalogue. Same edit-and-restart contract as the
+// floor-scaling table; ChestService draws weapon names from a floor's
+// weaponLoot pool and resolves the WeaponDefinition through this
+// registry to stamp the dropped Item.Weapon block.
+var weaponsPath = Path.Combine(builder.Environment.ContentRootPath, "Config", "weapons.json");
+var weaponRegistry = WeaponRegistryLoader.LoadFromFile(weaponsPath);
+builder.Services.AddSingleton(weaponRegistry);
 
 builder.Services.AddSingleton<SessionManager>();
 builder.Services.AddSingleton<LobbyManager>();
@@ -16,6 +34,7 @@ builder.Services.AddSingleton<CombatService>();
 builder.Services.AddSingleton<RunEndService>();
 builder.Services.AddSingleton<CombatRunner>();
 builder.Services.AddSingleton<DescendService>();
+builder.Services.AddSingleton<ChestService>();
 builder.Services.AddSignalR();
 
 // Persistence — wire DbContext + RunHistoryService when a connection string

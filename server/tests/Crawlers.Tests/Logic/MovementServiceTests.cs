@@ -1,5 +1,7 @@
 using Crawlers.Domain.Enums;
 using Crawlers.Domain.Models;
+using Crawlers.Generation.Scaling;
+using Crawlers.Generation.Weapons;
 using Crawlers.Server.Logic;
 using Crawlers.Server.Sessions;
 using Xunit;
@@ -18,6 +20,194 @@ public class MovementServiceTests
 
         Assert.True(ok);
         Assert.Equal(new Position(3, 2), state.PrimaryPlayer.Position);
+    }
+
+    [Fact]
+    public void Stepping_onto_a_standard_chest_credits_gold_when_gold_path_rolls()
+    {
+        // Step 3.4 — Standard chest now rolls gold (most often) or weapon.
+        // Force the gold path so the test is deterministic. The gold
+        // path credits the player and drops no item on the floor; the
+        // animation is a client-side coin burst on detect-on-snapshot-delta.
+        var state = BuildSimpleSession(playerAt: new Position(2, 2));
+        var floor = state.GetFloor(1)!;
+        floor.Entities.Add(new Entity
+        {
+            Id = Guid.NewGuid(),
+            FloorId = floor.Id,
+            Type = EntityType.Chest,
+            Name = "Chest",
+            Position = new Position(3, 2),
+            State = EntityState.Alive,
+            ChestKind = ChestKind.Standard
+        });
+
+        var goldBefore = state.PrimaryPlayer.Gold;
+        var chests = new ChestService(goldChanceOutOfTen: 10);
+        var ok = new MovementService(chests).TryMove(
+            state, state.PrimaryPlayer.Id, MoveDirection.East);
+
+        Assert.True(ok);
+        Assert.True(state.PrimaryPlayer.Gold > goldBefore);
+        Assert.Empty(state.PrimaryPlayer.Inventory);
+        Assert.DoesNotContain(floor.Entities, e => e.Type == EntityType.Item);
+    }
+
+    [Fact]
+    public void Walking_onto_a_weapon_item_replaces_equipped_weapon_and_skips_inventory()
+    {
+        // Step 3.4 — weapons aren't inventory items; pickup REPLACES the
+        // equipped slot and rebuilds Stats.Damage/InitiativeMod from
+        // the new weapon. Inventory stays unaffected.
+        var state = BuildSimpleSession(playerAt: new Position(2, 2));
+        var player = state.PrimaryPlayer;
+        var floor = state.GetFloor(1)!;
+
+        // Pre-equip a Regular Sword so we can assert replacement.
+        var oldWeapon = new WeaponBlock(new DiceRoll(1, 6, 1), 1);
+        player.EquippedWeapon = oldWeapon;
+        player.EquippedWeaponName = "Regular Sword";
+        player.Stats = player.Stats with { Damage = oldWeapon.Damage, InitiativeMod = oldWeapon.InitiativeMod };
+
+        // Drop an Axe (1d10+3, -2 init) on the tile to the East.
+        var axeWeapon = new WeaponBlock(new DiceRoll(1, 10, 3), -2);
+        floor.Entities.Add(new Entity
+        {
+            Id = Guid.NewGuid(),
+            FloorId = floor.Id,
+            Type = EntityType.Item,
+            Name = "Axe",
+            Position = new Position(3, 2),
+            State = EntityState.Alive,
+            Item = new Item { Id = Guid.NewGuid(), Name = "Axe", Weapon = axeWeapon }
+        });
+
+        var ok = new MovementService().TryMove(
+            state, player.Id, MoveDirection.East);
+
+        Assert.True(ok);
+        Assert.Equal(axeWeapon, player.EquippedWeapon);
+        Assert.Equal("Axe", player.EquippedWeaponName);
+        Assert.Equal(axeWeapon.Damage, player.Stats.Damage);
+        Assert.Equal(axeWeapon.InitiativeMod, player.Stats.InitiativeMod);
+        Assert.Empty(player.Inventory);
+        Assert.DoesNotContain(floor.Entities, e => e.Type == EntityType.Item);
+    }
+
+    [Fact]
+    public void Stepping_onto_a_standard_chest_weapon_path_leaves_weapon_on_chest_tile()
+    {
+        // Step 3.4 polish — pickup runs BEFORE chest open in TryMove,
+        // so a weapon that the chest just dropped on its own tile is
+        // NOT auto-equipped on the same step. Player has to step off
+        // and back. The HUD still shows the old weapon until then.
+        var state = BuildSimpleSession(playerAt: new Position(2, 2));
+        var player = state.PrimaryPlayer;
+        var floor = state.GetFloor(1)!;
+
+        var oldWeapon = new WeaponBlock(new DiceRoll(1, 6, 1), 1);
+        player.EquippedWeapon = oldWeapon;
+        player.EquippedWeaponName = "Regular Sword";
+
+        var chestPos = new Position(3, 2);
+        floor.Entities.Add(new Entity
+        {
+            Id = Guid.NewGuid(),
+            FloorId = floor.Id,
+            Type = EntityType.Chest,
+            Name = "Chest",
+            Position = chestPos,
+            State = EntityState.Alive,
+            ChestKind = ChestKind.Standard
+        });
+
+        var weapons = new WeaponRegistry(new[]
+        {
+            new WeaponDefinition("Test Blade", new DiceRoll(1, 8, 1), 0)
+        });
+        var scaling = new FloorScalingTable(new[]
+        {
+            FloorScaling.Identity(1, 7) with
+            {
+                FloorNumber = 1,
+                WeaponLoot = new[] { new WeaponLootEntry("Test Blade", 1) }
+            }
+        });
+        var chests = new ChestService(scaling, weapons, new Random(0), goldChanceOutOfTen: 0);
+
+        new MovementService(chests).TryMove(state, player.Id, MoveDirection.East);
+
+        // Weapon stays on chest tile, equipped slot unchanged.
+        var weapon = floor.Entities.Single(e => e.Type == EntityType.Item);
+        Assert.Equal(chestPos, weapon.Position);
+        Assert.Equal("Test Blade", weapon.Name);
+        Assert.Equal(oldWeapon, player.EquippedWeapon);
+        Assert.Equal("Regular Sword", player.EquippedWeaponName);
+
+        // Step off and back: PickupItemsAt now runs against the chest
+        // tile and finds the weapon → equipped slot replaced.
+        new MovementService(chests).TryMove(state, player.Id, MoveDirection.West);
+        new MovementService(chests).TryMove(state, player.Id, MoveDirection.East);
+
+        Assert.NotEqual(oldWeapon, player.EquippedWeapon);
+        Assert.Equal("Test Blade", player.EquippedWeaponName);
+        Assert.DoesNotContain(floor.Entities, e => e.Type == EntityType.Item);
+    }
+
+    [Fact]
+    public void Walking_onto_a_consumable_item_still_goes_to_inventory()
+    {
+        // Regression check — non-weapon items keep the legacy pickup path.
+        var state = BuildSimpleSession(playerAt: new Position(2, 2));
+        var player = state.PrimaryPlayer;
+        var floor = state.GetFloor(1)!;
+
+        floor.Entities.Add(new Entity
+        {
+            Id = Guid.NewGuid(),
+            FloorId = floor.Id,
+            Type = EntityType.Item,
+            Name = "Healing Draught",
+            Position = new Position(3, 2),
+            State = EntityState.Alive,
+            Item = new Item
+            {
+                Id = Guid.NewGuid(),
+                Name = "Healing Draught",
+                IsConsumable = true,
+                Effect = ItemEffect.Heal,
+                EffectValue = 6
+            }
+        });
+
+        new MovementService().TryMove(state, player.Id, MoveDirection.East);
+
+        Assert.Single(player.Inventory);
+        Assert.Equal("Healing Draught", player.Inventory[0].Name);
+        Assert.DoesNotContain(floor.Entities, e => e.Type == EntityType.Item);
+    }
+
+    [Fact]
+    public void Stepping_onto_an_empty_chest_opens_it_with_no_loot()
+    {
+        var state = BuildSimpleSession(playerAt: new Position(2, 2));
+        var floor = state.GetFloor(1)!;
+        var chest = new Entity
+        {
+            Id = Guid.NewGuid(),
+            FloorId = floor.Id,
+            Type = EntityType.Chest,
+            Name = "Chest",
+            Position = new Position(3, 2),
+            State = EntityState.Alive,
+            ChestKind = ChestKind.Empty
+        };
+        floor.Entities.Add(chest);
+
+        new MovementService().TryMove(state, state.PrimaryPlayer.Id, MoveDirection.East);
+
+        Assert.True(chest.IsOpen);
+        Assert.Empty(state.PrimaryPlayer.Inventory);
     }
 
     [Fact]

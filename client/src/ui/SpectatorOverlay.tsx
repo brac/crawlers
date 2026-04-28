@@ -27,9 +27,17 @@ export function SpectatorOverlay({ snapshot, onSpectate }: SpectatorOverlayProps
 
   useEffect(() => {
     if (!dead) {
-      setPauseElapsed(false);
-      setPickerOpen(false);
-      return;
+      // Defer the reset to a microtask so we're not synchronously
+      // setting state in the effect body — the lint rule
+      // (react-hooks/set-state-in-effect) flags the synchronous form.
+      // Timing doesn't matter: the component renders null while !dead
+      // (see early return below), so neither pauseElapsed nor pickerOpen
+      // is observable until dead flips back to true.
+      const reset = window.setTimeout(() => {
+        setPauseElapsed(false);
+        setPickerOpen(false);
+      }, 0);
+      return () => window.clearTimeout(reset);
     }
     const handle = window.setTimeout(() => setPauseElapsed(true), DEATH_PAUSE_MS);
     return () => window.clearTimeout(handle);

@@ -10,4 +10,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- Crawlers.Tests reaches internal helpers (e.g. EntityPlacer.PickArchetype)
+       directly so they don't need to be in the public surface. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Crawlers.Tests" />
+  </ItemGroup>
+
 </Project>

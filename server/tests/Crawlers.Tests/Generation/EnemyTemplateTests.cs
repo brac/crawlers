@@ -53,4 +53,39 @@ public class EnemyTemplateTests
             Assert.NotNull(e.Stats);
         }
     }
+
+    // Step 2 — sanity-check the new variety pass: each new archetype
+    // exists, has a sprite-key-compatible Name (matches a key under
+    // characters/characterExtras in assets.json), and starts at full HP.
+    [Theory]
+    [InlineData(EnemyArchetype.Goblin, "Goblin")]
+    [InlineData(EnemyArchetype.Skeleton, "Skeleton")]
+    [InlineData(EnemyArchetype.MaskedOrc, "Masked Orc")]
+    [InlineData(EnemyArchetype.Chort, "Chort")]
+    [InlineData(EnemyArchetype.BigZombie, "Big Zombie")]
+    [InlineData(EnemyArchetype.Ogre, "Ogre")]
+    [InlineData(EnemyArchetype.BigDemon, "Big Demon")]
+    public void Step2_archetype_spawns_with_expected_name_and_full_hp(EnemyArchetype archetype, string expectedName)
+    {
+        var e = EnemyTemplates.Create(archetype, new Position(0, 0), Guid.NewGuid());
+        Assert.Equal(expectedName, e.Name);
+        Assert.True(e.Stats!.MaxHp > 0);
+        Assert.Equal(e.Stats.MaxHp, e.Stats.Hp);
+        Assert.True(e.Stats.Ac > 0);
+    }
+
+    [Fact]
+    public void Large_archetypes_hit_harder_than_small_ones()
+    {
+        var husk = EnemyTemplates.Create(EnemyArchetype.Husk, new Position(0, 0), Guid.NewGuid());
+        var ogre = EnemyTemplates.Create(EnemyArchetype.Ogre, new Position(0, 0), Guid.NewGuid());
+        // Locks the design intent that 32×36 large enemies are meaningfully
+        // tougher than 16×16 small ones — both more HP and more damage.
+        Assert.True(ogre.Stats!.MaxHp > husk.Stats!.MaxHp * 3);
+        var huskExpected = husk.Stats.Damage.Count * (husk.Stats.Damage.Sides + 1) / 2.0
+            + husk.Stats.Damage.Modifier;
+        var ogreExpected = ogre.Stats.Damage.Count * (ogre.Stats.Damage.Sides + 1) / 2.0
+            + ogre.Stats.Damage.Modifier;
+        Assert.True(ogreExpected > huskExpected);
+    }
 }

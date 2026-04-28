@@ -16,6 +16,7 @@ The game is **not** based on any existing IP. Tone, mechanics, and universe are 
 - **Visual polish phase 1 + Combat juice:** shipped.
 - **Multiplayer (Steps 1–13):** shipped. See `MULTIPLAYER.md`.
 - **Persistent-world (Steps 1–5, 9–12):** shipped (Steps 6–8 — blood trails, icon placement, icon render — intentionally skipped per portfolio scope). See `PERSISTENT_WORLD.md`.
+- **Content-and-depth:** in progress. See `CONTENT_AND_DEPTH.md`. Step 7 (Action Choices in Combat) lifted into its own follow-up phase — see `COMBAT_AGENCY.md`.
 
 For per-step detail, read the phase docs or `git log`. CLAUDE.md captures durable design — not build progress.
 
@@ -26,7 +27,7 @@ For per-step detail, read the phase docs or `git log`. CLAUDE.md captures durabl
 ```
 crawlers/
 ├── CLAUDE.md
-├── MULTIPLAYER.md, PERSISTENT_WORLD.md, VISUAL_POLISH.md
+├── MULTIPLAYER.md, PERSISTENT_WORLD.md, VISUAL_POLISH.md, CONTENT_AND_DEPTH.md, COMBAT_AGENCY.md
 ├── docker-compose.yml, .env.example
 ├── server/
 │   ├── Crawlers.slnx

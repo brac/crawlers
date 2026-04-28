@@ -67,4 +67,38 @@ public class Player
     /// end-of-run screen. Null while alive.
     /// </summary>
     public string? CauseOfDeath { get; set; }
+
+    /// <summary>
+    /// Content-and-Depth Step 3.4 — currently equipped weapon. Drives
+    /// <see cref="EntityStats.Damage"/> and the initiative roll in
+    /// combat. Defaults to a Regular Sword on a fresh run; weapon
+    /// pickups replace this slot rather than going into
+    /// <see cref="Inventory"/>. Null is treated as unarmed (rare —
+    /// the start state always supplies one).
+    /// </summary>
+    public WeaponBlock? EquippedWeapon { get; set; }
+
+    /// <summary>
+    /// Step 3.4 — display name of the equipped weapon (matches the
+    /// client manifest key under <c>weapons</c>). Tracked separately
+    /// from <see cref="EquippedWeapon"/> because the stat block has no
+    /// name; the HUD shows this string directly.
+    /// </summary>
+    public string? EquippedWeaponName { get; set; }
+
+    /// <summary>
+    /// Content-and-Depth Step 3.4 — gold counter. Standard chests
+    /// credit gold (more often than they drop weapons); the value is
+    /// purely decorative for now (no sink), but accumulates across the
+    /// run. Reset to 0 on session start.
+    /// </summary>
+    public int Gold { get; set; }
+
+    /// <summary>
+    /// Step 5 — active Bleed / Poison status effects. Mutated by combat
+    /// (apply on hit + tick + decrement) and by the Antidote consumable
+    /// (clears all). Stacking rule: applying the same kind refreshes
+    /// rounds to the longer of current/new; damage is not stacked.
+    /// </summary>
+    public List<StatusEffect> StatusEffects { get; init; } = new();
 }

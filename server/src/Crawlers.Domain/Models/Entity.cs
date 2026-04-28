@@ -42,4 +42,39 @@ public class Entity
     /// "killed by X" line.
     /// </summary>
     public string? KillerType { get; set; }
+
+    /// <summary>
+    /// Content-and-Depth Step 3 — the kind of chest, when
+    /// <see cref="Type"/> == <see cref="EntityType.Chest"/>. Held server-
+    /// side and only revealed at open time (Step 3.3); the snapshot DTO
+    /// does not expose this so the client cannot distinguish a Standard
+    /// chest from a Mimic before opening it. Null on every non-chest.
+    /// </summary>
+    public ChestKind? ChestKind { get; set; }
+
+    /// <summary>
+    /// Content-and-Depth Step 3.3 — whether a chest has been opened.
+    /// Only meaningful when <see cref="Type"/> == <see cref="EntityType.Chest"/>.
+    /// Drives the open/closed sprite swap on the client and the
+    /// "already opened" rejection in <c>ChestService.TryOpen</c>.
+    /// </summary>
+    public bool IsOpen { get; set; }
+
+    /// <summary>
+    /// Step 5 — active Bleed / Poison status effects on enemy entities
+    /// (parallel to <see cref="Player.StatusEffects"/>). Players don't
+    /// inflict statuses on enemies in this phase (no on-hit weapon
+    /// effects yet), but the slot exists so the status-tick loop can
+    /// be uniform across combatants.
+    /// </summary>
+    public List<StatusEffect> StatusEffects { get; init; } = new();
+
+    /// <summary>
+    /// Step 5 — status effect this enemy applies on a successful melee
+    /// hit. Set per-archetype in <c>EnemyTemplates</c>; null on
+    /// archetypes that don't inflict statuses (most basic enemies). The
+    /// stacking rule (refresh-to-longer) is enforced in
+    /// <c>StatusEffectHelper.Apply</c>.
+    /// </summary>
+    public StatusEffect? OnHitStatus { get; set; }
 }

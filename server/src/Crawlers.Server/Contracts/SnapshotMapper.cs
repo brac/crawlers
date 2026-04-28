@@ -70,8 +70,12 @@ public static class SnapshotMapper
                 Hp: player.Stats.Hp,
                 MaxHp: player.Stats.MaxHp,
                 Inventory: player.Inventory
-                    .Select(i => new ItemDto(i.Id, i.Name, i.Description, i.IsConsumable, i.Effect, i.EffectValue))
-                    .ToList());
+                    .Select(i => new ItemDto(i.Id, i.Name, i.Description, i.IsConsumable, i.Effect, i.EffectValue, i.Weapon))
+                    .ToList(),
+                EquippedWeapon: player.EquippedWeapon,
+                Gold: player.Gold,
+                EquippedWeaponName: player.EquippedWeaponName,
+                StatusEffects: player.StatusEffects.ToList());
 
         // Picker list — only populated when this player is dead. Filter to
         // live + connected teammates so a disconnected player isn't a valid
@@ -115,7 +119,8 @@ public static class SnapshotMapper
                 floor,
                 fog,
                 state.GetHeatmap(viewer.CurrentFloorNumber),
-                state.GetFloorFlavor(viewer.CurrentFloorNumber)),
+                state.GetFloorFlavor(viewer.CurrentFloorNumber),
+                state.GetFloorTint(viewer.CurrentFloorNumber)),
             Player: playerDto,
             OtherPlayers: others,
             Combat: combat is null ? null : ToCombatLog(combat.Log),
@@ -166,16 +171,17 @@ public static class SnapshotMapper
     }
 
     public static FloorSnapshotDto ToFloorSnapshot(Floor floor) =>
-        ToFloorSnapshot(floor, fog: null, heatmap: null, flavor: null);
+        ToFloorSnapshot(floor, fog: null, heatmap: null, flavor: null, tint: null);
 
     public static FloorSnapshotDto ToFloorSnapshot(Floor floor, VisibilityState[,]? fog) =>
-        ToFloorSnapshot(floor, fog, heatmap: null, flavor: null);
+        ToFloorSnapshot(floor, fog, heatmap: null, flavor: null, tint: null);
 
     public static FloorSnapshotDto ToFloorSnapshot(
         Floor floor,
         VisibilityState[,]? fog,
         IReadOnlyList<Crawlers.Server.Persistence.TileHeat>? heatmap,
-        string? flavor)
+        string? flavor,
+        string? tint)
     {
         int n = floor.Width * floor.Height;
         var tiles = new int[n];
@@ -201,14 +207,23 @@ public static class SnapshotMapper
             .Where(e => fog is null || fog[e.Position.X, e.Position.Y] == VisibilityState.Visible)
             .Select(e => new EntityDto(
                 e.Id, e.Type, e.Name ?? "", e.Position.X, e.Position.Y,
-                e.DiedAt, e.Username, e.KillerType))
+                e.DiedAt, e.Username, e.KillerType, e.ChestKind, e.IsOpen))
             .ToList();
 
         var heatDtos = heatmap is null
             ? (IReadOnlyList<TileHeatDto>)Array.Empty<TileHeatDto>()
             : heatmap.Select(h => new TileHeatDto(h.X, h.Y, h.Count)).ToList();
 
-        return new FloorSnapshotDto(floor.Width, floor.Height, tiles, visibility, rooms, entities, heatDtos, flavor);
+        return new FloorSnapshotDto(
+            floor.Width, floor.Height, tiles, visibility, rooms, entities, heatDtos, flavor,
+            // Identity tint when no per-floor entry stamped (legacy callers /
+            // tests that bypass the scaling-aware floor mint path).
+            tint ?? "#ffffff",
+            // Step 9 — title-card name resolved here so the FloorSnapshotDto
+            // is fully self-describing. Computed from floor.FloorNumber so
+            // it works for both fresh mints and snapshots of already-loaded
+            // floors.
+            Crawlers.Server.Logic.FloorNameResolver.For(floor.FloorNumber));
     }
 
     public static PlayerSnapshotDto ToPlayerSnapshot(Player player) => new(
@@ -219,8 +234,12 @@ public static class SnapshotMapper
         player.Stats.Hp,
         player.Stats.MaxHp,
         player.Inventory
-            .Select(i => new ItemDto(i.Id, i.Name, i.Description, i.IsConsumable, i.Effect, i.EffectValue))
-            .ToList()
+            .Select(i => new ItemDto(i.Id, i.Name, i.Description, i.IsConsumable, i.Effect, i.EffectValue, i.Weapon))
+            .ToList(),
+        EquippedWeapon: player.EquippedWeapon,
+        Gold: player.Gold,
+        EquippedWeaponName: player.EquippedWeaponName,
+        StatusEffects: player.StatusEffects.ToList()
     );
 
     public static CombatLogDto ToCombatLog(CombatLog log) => new(

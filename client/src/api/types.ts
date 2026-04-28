@@ -48,8 +48,19 @@ export const EntityType = {
   Item: 1,
   Npc: 2,
   Corpse: 3,
+  // Content-and-Depth Step 3 — chest. Renders as a closed-chest sprite;
+  // does not block movement and does not trigger engagement. Kind is
+  // held server-side and only revealed at open time (Step 3.3).
+  Chest: 4,
 } as const;
 export type EntityType = (typeof EntityType)[keyof typeof EntityType];
+
+export const ChestKind = {
+  Standard: 0,
+  Empty: 1,
+  Mimic: 2,
+} as const;
+export type ChestKind = (typeof ChestKind)[keyof typeof ChestKind];
 
 export const ItemEffect = {
   None: 0,
@@ -73,6 +84,17 @@ export const CombatEventKind = {
 export type CombatEventKind =
   (typeof CombatEventKind)[keyof typeof CombatEventKind];
 
+export interface DiceRollDto {
+  count: number;
+  sides: number;
+  modifier: number;
+}
+
+export interface WeaponBlockDto {
+  damage: DiceRollDto;
+  initiativeMod: number;
+}
+
 export interface ItemDto {
   id: string;
   name: string;
@@ -80,6 +102,10 @@ export interface ItemDto {
   isConsumable: boolean;
   effect: ItemEffect;
   effectValue: number;
+  // Step 3.4 — set when the item is a weapon. Inventory UI surfaces
+  // damage + init mod; renderer uses assets.weaponTexture(name) for
+  // the icon. Null on consumables and the existing Bone Charm.
+  weapon: WeaponBlockDto | null;
 }
 
 export interface EntityDto {
@@ -96,6 +122,13 @@ export interface EntityDto {
   // or null for non-combat deaths / legacy rows.
   username: string | null;
   killerType: string | null;
+  // Content-and-Depth Step 3 — chest kind. Set only when type == Chest.
+  // Renderer maps this to the right closed-chest sprite (Standard/Empty/
+  // Mimic each have their own art row in the sheet). Null on non-chests.
+  chestKind: ChestKind | null;
+  // Content-and-Depth Step 3.3 — chest open/closed state. Always false
+  // on non-chest entities. Drives the open-sprite swap in the renderer.
+  isOpen: boolean;
 }
 
 export interface RoomDto {
@@ -126,6 +159,14 @@ export interface FloorSnapshotDto {
   // snapshot of this floor in this session; the client detects floor
   // change to fade it in for a few seconds.
   flavor: string | null;
+  // Content-and-Depth Step 1 — per-floor color tint sourced from
+  // floor-scaling.json on the server. "#rrggbb" hex string;
+  // "#ffffff" = no tint. Renderer applies it multiplicatively to the
+  // world container.
+  tint: string;
+  // Step 9 — title-card display name (cycle-aware: "The Crypt" /
+  // "Deeper Crypt" / "Forgotten Crypt" as the player descends).
+  floorName: string;
 }
 
 // Step 12 — public stats served by GET /api/world-stats. All counts are
@@ -156,6 +197,19 @@ export interface WorldStatsDto {
   mostFallenPlayer: DeadliestPlayer | null;
 }
 
+export const StatusEffectKind = {
+  Bleed: 0,
+  Poison: 1,
+} as const;
+export type StatusEffectKind =
+  (typeof StatusEffectKind)[keyof typeof StatusEffectKind];
+
+export interface StatusEffectDto {
+  kind: StatusEffectKind;
+  roundsRemaining: number;
+  damagePerTick: number;
+}
+
 export interface PlayerSnapshotDto {
   id: string;
   username: string;
@@ -164,6 +218,15 @@ export interface PlayerSnapshotDto {
   hp: number;
   maxHp: number;
   inventory: ItemDto[];
+  // Step 3.4 — equipped weapon (drives combat damage + initiative).
+  // HUD shows the name + stat line; null only on legacy snapshots.
+  equippedWeapon: WeaponBlockDto | null;
+  equippedWeaponName: string | null;
+  // Step 3.4 — gold counter, accumulating only (no sink yet).
+  gold: number;
+  // Step 5 — active Bleed / Poison effects on the local player. HUD
+  // renders one badge per entry next to the HP bar.
+  statusEffects: StatusEffectDto[];
 }
 
 export interface CombatEventDto {

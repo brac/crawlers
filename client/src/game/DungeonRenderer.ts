@@ -13,6 +13,7 @@ import type {
   TileHeatDto,
 } from "../api/types";
 import {
+  ChestKind,
   CombatEventKind,
   EntityType,
   TileType,
@@ -31,6 +32,48 @@ function pickRenderScale(viewportW: number, viewportH: number): number {
   const minDim = Math.min(viewportW, viewportH);
   const fit = Math.floor(minDim / (TILE_SIZE * MIN_TILES_VISIBLE));
   return Math.max(MIN_RENDER_SCALE, Math.min(MAX_RENDER_SCALE, fit));
+}
+
+// Parse a "#rrggbb" / "#rgb" string into a 24-bit number Pixi expects.
+// Falls back to 0xffffff (identity tint) on null/undefined/malformed input
+// so a malformed config never blanks out the dungeon.
+// Resolves the manifest kind-prefix for a chest entity. The renderer
+// uses this to fetch the 3-frame animation strip per chest kind.
+function chestKindPrefix(e: { chestKind: ChestKind | null }): "Standard" | "Empty" | "Mimic" {
+  return e.chestKind === ChestKind.Empty ? "Empty"
+    : e.chestKind === ChestKind.Mimic ? "Mimic"
+    : "Standard";
+}
+
+interface CoinFx {
+  sprite: AnimatedSprite;
+  groundY: number;   // y coord the coin bounces against (set to spawn tile)
+  x: number;         // current x, px (world-space)
+  y: number;         // current y, px (world-space)
+  vx: number;        // px / s
+  vy: number;        // px / s, downward positive
+  bouncesLeft: number;
+  // Once bouncing is exhausted (or vy collapses below threshold), start
+  // fading the coin out over fadeMs and remove it.
+  fadingFromMs: number | null; // performance.now() at fade start, or null
+  fadeMs: number;
+  lastTickMs: number; // performance.now() of the previous integration step
+}
+
+function parseHexColor(hex: string | undefined | null): number {
+  if (!hex) return 0xffffff;
+  const s = hex.startsWith("#") ? hex.slice(1) : hex;
+  if (s.length === 3) {
+    const r = s[0], g = s[1], b = s[2];
+    const expanded = `${r}${r}${g}${g}${b}${b}`;
+    const n = parseInt(expanded, 16);
+    return Number.isNaN(n) ? 0xffffff : n;
+  }
+  if (s.length === 6) {
+    const n = parseInt(s, 16);
+    return Number.isNaN(n) ? 0xffffff : n;
+  }
+  return 0xffffff;
 }
 
 const VISIBILITY_ALPHA: Record<VisibilityState, number> = {
@@ -88,6 +131,11 @@ interface TrackedSprite {
    *  player and enemies; other players get their differentiator colour so
    *  hit flashes fade back into the right hue instead of pure white. */
   baseTint: number;
+  /** Step 3.4 — entity type for the per-tick zIndex bump. Items get a
+   *  +100 bump so a weapon dropped on a chest tile renders ABOVE the
+   *  chest sprite (otherwise the item's center-anchored y is smaller
+   *  than the chest's bottom-anchored y → item draws first → behind). */
+  entityType: EntityType | null;
 }
 
 interface PendingAnim {
@@ -347,6 +395,14 @@ export class DungeonRenderer {
   // and push the events past the watermark into the anim queue.
   private combatWatermarks = new Map<string, number>();
   private playerWeapon: Sprite | null = null;
+  // Step 3.4 — name of the texture currently on `playerWeapon`. Used to
+  // detect equippedWeaponName transitions on snapshot so the texture
+  // can be swapped in place without respawning the sprite.
+  private playerWeaponName: string | null = null;
+  // Step 3.4 — active gold-burst coins. Each one is an AnimatedSprite
+  // (continuously spinning) that bounces along a parabolic arc and
+  // fades out after ~1.5s. Tick advances + culls them.
+  private coinFx: CoinFx[] = [];
   private cameraShakeUntil = 0;
   private cameraShakeDuration = 0;
   private cameraShakeMagnitude = 0;
@@ -421,7 +477,22 @@ export class DungeonRenderer {
       !isFirstSnapshot &&
       this.lastSnapshot!.floorNumber !== snapshot.floorNumber;
     const snap = isFirstSnapshot || isNewFloor || isNewSession;
+    // Step 3.4 — gold-burst FX. Detect a positive delta in the local
+    // player's gold counter and pop a variable spray of spinning coins
+    // at their tile. Cross-floor / new-session jumps (snap=true)
+    // suppress the FX so spawning into a session doesn't fake a gold
+    // burst. The snapshot ref must be captured BEFORE the lastSnapshot
+    // reassign below.
+    if (
+      !snap &&
+      this.lastSnapshot &&
+      snapshot.player.gold > this.lastSnapshot.player.gold
+    ) {
+      const delta = snapshot.player.gold - this.lastSnapshot.player.gold;
+      this.spawnCoinBurst(snapshot.player.x, snapshot.player.y, delta);
+    }
     this.lastSnapshot = snapshot;
+    this.applyFloorTint(snapshot.floor.tint);
     this.drawTiles(snapshot);
     this.updateDoors(snapshot, snap);
     // Ingest combat events BEFORE updating entities/players so the new round's
@@ -432,6 +503,19 @@ export class DungeonRenderer {
     this.updatePlayer(snapshot, snap);
     this.updateOtherPlayers(snapshot, snap);
     if (snap) this.centerCameraOnPlayer();
+  }
+
+  /// Apply the per-floor color tint from the snapshot. Pixi v8 Container
+  /// .tint multiplies child colors so #ffffff is identity; per-floor tints
+  /// from floor-scaling.json bias the dungeon toward a theme (slight
+  /// green for sewers, amber for caverns, red for the hellscape) without
+  /// the cost of swapping the tile sprites — that's Step 8 work.
+  private currentTint = 0xffffff;
+  private applyFloorTint(tintHex: string | undefined | null) {
+    const parsed = parseHexColor(tintHex);
+    if (parsed === this.currentTint) return;
+    this.currentTint = parsed;
+    this.worldContainer.tint = parsed;
   }
 
   private drawTiles(snapshot: GameStateSnapshotDto) {
@@ -595,6 +679,17 @@ export class DungeonRenderer {
       const existing = this.entitySprites.get(e.id);
       if (existing) {
         this.retarget(existing, target.x, target.y, snap);
+        // Step 3.3 — when a chest's isOpen flips true, play the open
+        // animation forward once. The AnimatedSprite was created with
+        // loop=false so it settles on the FullyOpen frame and stays.
+        // The currentFrame check makes this idempotent: once we've
+        // started or finished the play, we don't re-trigger.
+        if (e.type === EntityType.Chest && e.isOpen
+            && existing.sprite instanceof AnimatedSprite
+            && existing.sprite.currentFrame === 0)
+        {
+          existing.sprite.gotoAndPlay(0);
+        }
         continue;
       }
       const created = this.spawnEntity(e);
@@ -752,14 +847,15 @@ export class DungeonRenderer {
       tracked.sprite.y = target.y;
       this.spriteLayer.addChild(tracked.sprite);
       this.playerSprite = tracked;
-      this.spawnPlayerWeapon();
+      this.spawnPlayerWeapon(snapshot.player.equippedWeaponName ?? "Regular Sword");
       return;
     }
     this.retarget(this.playerSprite, target.x, target.y, snap);
+    this.syncPlayerWeaponTexture(snapshot.player.equippedWeaponName);
   }
 
-  private spawnWeaponSprite(): Sprite | null {
-    const tex = this.assets.weaponTexture("regular_sword");
+  private spawnWeaponSprite(name: string = "Regular Sword"): Sprite | null {
+    const tex = this.assets.weaponTexture(name) ?? this.assets.weaponTexture("Regular Sword");
     if (!tex) return null;
     const w = new Sprite(tex);
     // Anchor near the bottom of the sprite so the handle is the placement
@@ -768,11 +864,28 @@ export class DungeonRenderer {
     return w;
   }
 
-  private spawnPlayerWeapon() {
-    const w = this.spawnWeaponSprite();
+  private spawnPlayerWeapon(name: string = "Regular Sword") {
+    const w = this.spawnWeaponSprite(name);
     if (!w) return;
     this.spriteLayer.addChild(w);
     this.playerWeapon = w;
+    this.playerWeaponName = name;
+  }
+
+  /// Step 3.4 — keep the player's held-weapon sprite in sync with the
+  /// snapshot's equippedWeaponName. On change, swap the texture in
+  /// place (no respawn) so the weapon-pose state and parent layer
+  /// don't churn. Falls back to Regular Sword if the manifest doesn't
+  /// know the new name (defensive — shouldn't happen because every
+  /// weapon archetype is declared).
+  private syncPlayerWeaponTexture(equippedName: string | null) {
+    if (!this.playerWeapon) return;
+    const desired = equippedName ?? "Regular Sword";
+    if (this.playerWeaponName === desired) return;
+    const tex = this.assets.weaponTexture(desired) ?? this.assets.weaponTexture("Regular Sword");
+    if (!tex) return;
+    this.playerWeapon.texture = tex;
+    this.playerWeaponName = desired;
   }
 
   // Hand sits a few px to the facing side at roughly hip height; pulled in
@@ -903,11 +1016,32 @@ export class DungeonRenderer {
 
   private spawnEntity(e: EntityDto): TrackedSprite | null {
     if (e.type === EntityType.Item) {
-      const tex = this.assets.itemTexture(e.name);
+      // Step 3.4 — items can be either consumables (manifest > items) or
+      // weapons (manifest > weapons). Try the items section first; fall
+      // through to weapons so weapon drops on the floor render correctly.
+      const tex = this.assets.itemTexture(e.name) ?? this.assets.weaponTexture(e.name);
       if (!tex) return null;
       const sprite = new Sprite(tex);
       sprite.anchor.set(0.5, 0.5);
-      return { sprite, tween: null, characterName: null, currentAnim: null, baseTint: 0xffffff };
+      return { sprite, tween: null, characterName: null, currentAnim: null, baseTint: 0xffffff, entityType: EntityType.Item };
+    }
+    if (e.type === EntityType.Chest) {
+      // Step 3.3 — chests use the 3-frame animation strip
+      // (Closed → Opening → FullyOpen) per kind. Initial frame depends
+      // on whether the snapshot says the chest is already open: a
+      // freshly-placed closed chest sits on frame 0, a chest the player
+      // hasn't seen yet that's already open jumps to frame 2 (no
+      // animation). The closed→open transition (handled in
+      // updateEntities) calls gotoAndPlay to play the strip once and
+      // settle on frame 2.
+      const frames = this.assets.chestAnimationFrames(chestKindPrefix(e));
+      if (frames.length === 0) return null;
+      const sprite = new AnimatedSprite(frames);
+      sprite.anchor.set(0.5, 1.0);
+      sprite.loop = false;
+      sprite.animationSpeed = 8 / 60; // ~8 fps → 3 frames in ~375ms
+      sprite.gotoAndStop(e.isOpen ? frames.length - 1 : 0);
+      return { sprite, tween: null, characterName: null, currentAnim: null, baseTint: 0xffffff, entityType: EntityType.Chest };
     }
     if (e.type === EntityType.Corpse) {
       // Reuse the manifest's "Corpse" item texture (knight idle frame 0,
@@ -944,9 +1078,11 @@ export class DungeonRenderer {
       sprite.on("pointerout", () => this.fireCorpseHover(null, null));
       sprite.on("pointertap", (ev: FederatedPointerEvent) => this.fireCorpseHover(tip, ev));
 
-      return { sprite, tween: null, characterName: null, currentAnim: null, baseTint: CORPSE_TINT };
+      return { sprite, tween: null, characterName: null, currentAnim: null, baseTint: CORPSE_TINT, entityType: EntityType.Corpse };
     }
-    return this.spawnCharacter(e.name);
+    const tracked = this.spawnCharacter(e.name);
+    if (tracked) tracked.entityType = e.type;
+    return tracked;
   }
 
   private spawnCharacter(name: string): TrackedSprite | null {
@@ -955,6 +1091,10 @@ export class DungeonRenderer {
     if (!entry || frames.length === 0) return null;
     const sprite = new AnimatedSprite(frames);
     sprite.anchor.set(entry.anchor[0], entry.anchor[1]);
+    // Optional per-character render-scale multiplier (manifest field).
+    // Anchored at bottom-center, so larger sprites still plant their
+    // feet on the same tile and just grow upward / outward.
+    if (entry.scale && entry.scale !== 1) sprite.scale.set(entry.scale, entry.scale);
     sprite.animationSpeed = entry.animations.idle.fps / 60;
     sprite.loop = true;
     // Random start frame so a roomful of enemies doesn't breathe in lockstep.
@@ -965,6 +1105,7 @@ export class DungeonRenderer {
       characterName: name,
       currentAnim: "idle",
       baseTint: 0xffffff,
+      entityType: null,
     };
   }
 
@@ -993,6 +1134,7 @@ export class DungeonRenderer {
     if (this.playerSprite) this.advanceTween(this.playerSprite, now);
     for (const op of this.otherPlayerSprites.values()) this.advanceTween(op.tracked, now);
     this.advanceCombatAnim(now);
+    this.advanceCoinFx(now);
     // After the anim queue drains, drop any entity sprite that's no longer in
     // the latest snapshot. Snapshot-time culling defers when the queue still
     // references a sprite (so the killing-blow anim has something to swing
@@ -1006,7 +1148,12 @@ export class DungeonRenderer {
     //    teammate weapons positioned at the body. Local-player weapon goes
     //    through syncPlayerWeapon which also handles combat-driven poses.
     for (const tracked of this.entitySprites.values()) {
-      tracked.sprite.zIndex = tracked.sprite.y;
+      // Items get a +100 z-bump so a weapon dropped on a chest tile
+      // renders ABOVE the chest sprite (item's centered anchor gives a
+      // smaller world-y than the chest's bottom anchor at the same
+      // tile, which would otherwise put the item BEHIND the chest).
+      const bump = tracked.entityType === EntityType.Item ? 100 : 0;
+      tracked.sprite.zIndex = tracked.sprite.y + bump;
     }
     if (this.playerSprite) {
       this.playerSprite.sprite.zIndex = this.playerSprite.sprite.y;
@@ -1088,6 +1235,122 @@ export class DungeonRenderer {
       t.tween = null;
       this.setAnim(t, "idle");
     }
+  }
+
+  /// Step 3.4 — pop a variable spray of spinning coins out of the given
+  /// tile. Coin count is driven by the gold delta (small chest yields
+  /// fling 3-ish coins, big yields scatter 10+) with a random divisor
+  /// so the same delta sometimes feels like a handful and sometimes
+  /// like a treasure pile. Each coin gets randomized initial velocity;
+  /// gravity pulls it down; on ground impact it bounces with energy
+  /// loss (restitution ~0.55). After ~3 bounces vertical motion damps
+  /// out and the sprite fades to 0 over ~350ms.
+  private spawnCoinBurst(tileX: number, tileY: number, goldAmount: number) {
+    const frames = this.assets.effectFrames("Coin");
+    if (frames.length === 0) return; // manifest missing — silent skip
+
+    const baseX = (tileX + 0.5) * TILE_SIZE;
+    const baseY = (tileY + 0.5) * TILE_SIZE;
+
+    // Count: scaled by amount with a 1-3 random divisor for jitter.
+    //   big yield (delta=20), divisor=1 → ~21 → clamped to 12 (treasure pile)
+    //   big yield, divisor=3            → ~7 (modest handful)
+    //   small yield (delta=5), divisor=1 → ~6 (small fistful)
+    //   small yield, divisor=3           → ~2 (just a couple)
+    const divisor = 1 + Math.floor(Math.random() * 3);
+    const raw = 1 + Math.floor(goldAmount / divisor);
+    const count = Math.max(2, Math.min(12, raw));
+    const now = performance.now();
+
+    for (let i = 0; i < count; i++) {
+      const sprite = new AnimatedSprite(frames);
+      sprite.anchor.set(0.5, 0.5);
+      sprite.loop = true;
+      sprite.animationSpeed = 8 / 60; // 2-frame strip looks fast at 8 fps
+      sprite.gotoAndPlay(Math.floor(Math.random() * frames.length));
+      sprite.x = baseX;
+      sprite.y = baseY;
+      sprite.zIndex = baseY + 1000;
+      this.spriteLayer.addChild(sprite);
+
+      // Initial cone: horizontal jitter [-30, 30] px/s, upward [-90, -130]
+      // px/s. Tuned so the first arc rises ~10–14 px above the tile and
+      // first impact lands ~250–350ms after spawn — chunky enough for
+      // the bounce to read.
+      const vx = (Math.random() - 0.5) * 60;
+      const vy = -(90 + Math.random() * 40);
+
+      this.coinFx.push({
+        sprite,
+        groundY: baseY,
+        x: baseX,
+        y: baseY,
+        vx,
+        vy,
+        bouncesLeft: 3,
+        fadingFromMs: null,
+        fadeMs: 350,
+        lastTickMs: now,
+      });
+    }
+  }
+
+  /// Per-tick discrete-time integration of active coin sprites:
+  ///   - vy += gravity * dt
+  ///   - position += velocity * dt
+  ///   - if y crosses groundY: snap, invert vy with restitution loss,
+  ///     dampen vx, decrement bouncesLeft. When bouncesLeft hits 0 (or
+  ///     vy collapses below a small threshold), start fading.
+  private advanceCoinFx(now: number) {
+    if (this.coinFx.length === 0) return;
+    const gravity = 480;        // px / s²
+    const restitution = 0.55;   // y velocity preserved per bounce
+    const friction = 0.78;      // x velocity preserved per bounce
+    const minBounceVy = 35;     // below this, settle and fade
+
+    const surviving: CoinFx[] = [];
+    for (const c of this.coinFx) {
+      const dt = Math.min(0.05, (now - c.lastTickMs) / 1000); // clamp big gaps
+      c.lastTickMs = now;
+
+      // Integrate.
+      c.vy += gravity * dt;
+      c.x += c.vx * dt;
+      c.y += c.vy * dt;
+
+      // Ground impact.
+      if (c.y >= c.groundY && c.vy > 0) {
+        c.y = c.groundY;
+        if (c.bouncesLeft > 0 && c.vy > minBounceVy) {
+          c.vy = -c.vy * restitution;
+          c.vx *= friction;
+          c.bouncesLeft--;
+        } else {
+          c.vy = 0;
+          c.vx = 0;
+          if (c.fadingFromMs === null) c.fadingFromMs = now;
+        }
+      }
+
+      // Apply position + zIndex.
+      c.sprite.x = c.x;
+      c.sprite.y = c.y;
+      c.sprite.zIndex = c.y + 1000;
+
+      // Fade-out + cull.
+      if (c.fadingFromMs !== null) {
+        const fadeT = (now - c.fadingFromMs) / c.fadeMs;
+        if (fadeT >= 1) {
+          this.spriteLayer.removeChild(c.sprite);
+          c.sprite.destroy();
+          continue;
+        }
+        c.sprite.alpha = 1 - fadeT;
+      }
+
+      surviving.push(c);
+    }
+    this.coinFx = surviving;
   }
 
   private centerCameraOnPlayer() {
