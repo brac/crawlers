@@ -161,6 +161,10 @@ interface OtherPlayerEntry {
   tracked: TrackedSprite;
   label: Text;
   weapon: Sprite | null;
+  /** Name of the texture currently on `weapon`. Used to detect
+   *  equippedWeaponName transitions between snapshots so the texture
+   *  can be swapped in place without respawning the sprite. */
+  weaponName: string | null;
   /** True once this teammate's hp has hit 0. The corpse Entity at their
    *  death tile becomes the visual; we hide their character sprite + label
    *  + weapon so the corpse stands alone. */
@@ -766,6 +770,10 @@ export class DungeonRenderer {
         existing.tracked.sprite.visible = !existing.isDead;
         existing.label.visible = !existing.isDead;
         if (existing.weapon) existing.weapon.visible = !existing.isDead;
+        // Step 3.4 — if this teammate's equipped weapon name changed,
+        // swap the texture in place. Same pattern as the local
+        // player's syncPlayerWeaponTexture, just on the OtherPlayerEntry.
+        this.syncOtherPlayerWeaponTexture(existing, op.equippedWeaponName);
         continue;
       }
       const tracked = this.spawnCharacter("Player");
@@ -777,7 +785,8 @@ export class DungeonRenderer {
       const label = this.makeNameLabel(op.username, op.inCombat);
       label.x = target.x;
       label.y = target.y - TILE_SIZE - LABEL_OFFSET_PX;
-      const weapon = this.spawnWeaponSprite();
+      const initialWeaponName = op.equippedWeaponName ?? "Regular Sword";
+      const weapon = this.spawnWeaponSprite(initialWeaponName);
       if (weapon) {
         weapon.tint = tracked.sprite.tint;
         // The tick loop positions it next frame — set initial pose so it
@@ -790,7 +799,13 @@ export class DungeonRenderer {
       // Labels live in the always-on-top uiLayer so they're never occluded
       // by a wall, door, or another player's body.
       this.uiLayer.addChild(label);
-      const entry: OtherPlayerEntry = { tracked, label, weapon, isDead: op.hp <= 0 };
+      const entry: OtherPlayerEntry = {
+        tracked,
+        label,
+        weapon,
+        weaponName: weapon ? initialWeaponName : null,
+        isDead: op.hp <= 0,
+      };
       if (entry.isDead) {
         tracked.sprite.visible = false;
         label.visible = false;
@@ -893,6 +908,19 @@ export class DungeonRenderer {
     if (!tex) return;
     this.playerWeapon.texture = tex;
     this.playerWeaponName = desired;
+  }
+
+  /// Same swap path as the local player's, but for a teammate. Called
+  /// from updateOtherPlayers when an existing OtherPlayerEntry's
+  /// EquippedWeaponName disagrees with the current sprite's texture.
+  private syncOtherPlayerWeaponTexture(entry: OtherPlayerEntry, equippedName: string | null) {
+    if (!entry.weapon) return;
+    const desired = equippedName ?? "Regular Sword";
+    if (entry.weaponName === desired) return;
+    const tex = this.assets.weaponTexture(desired) ?? this.assets.weaponTexture("Regular Sword");
+    if (!tex) return;
+    entry.weapon.texture = tex;
+    entry.weaponName = desired;
   }
 
   // Hand sits a few px to the facing side at roughly hip height; pulled in

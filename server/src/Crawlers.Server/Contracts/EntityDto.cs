@@ -17,6 +17,12 @@ public record EntityDto(
     // null for non-combat deaths and legacy rows.
     string? Username,
     string? KillerType,
+    // Owning player id, set on Corpse entities only. Used by the
+    // revive-dialog flow to match a corpse to its teammate's
+    // OtherPlayerDto without depending on username (which freezes at
+    // death and could legitimately differ from the live player's
+    // current display name).
+    Guid? PlayerId,
     // Content-and-Depth Step 3 — chest kind (Standard / Empty / Mimic).
     // Set only when Type == Chest. The client uses this to pick the
     // right sprite per kind. (Production rule that mimics should be

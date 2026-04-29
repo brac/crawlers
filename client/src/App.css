@@ -104,6 +104,63 @@
   opacity: 0;
 }
 
+/* Multiplayer revive — small modal-ish card pinned bottom-center. */
+.revive-dialog {
+  position: fixed;
+  bottom: 18vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 700;
+  background: rgba(20, 20, 28, 0.92);
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 14px 18px;
+  color: #eee;
+  text-align: center;
+  font-size: 14px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+  max-width: 320px;
+}
+
+.revive-title {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #c5e8b8;
+  margin-bottom: 8px;
+}
+
+.revive-body {
+  margin-bottom: 12px;
+  line-height: 1.45;
+}
+
+.revive-note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #f5b3b3;
+}
+
+.revive-button {
+  background: #4a7a3e;
+  color: #ffffff;
+  border: 1px solid #5e9a52;
+  border-radius: 4px;
+  padding: 6px 18px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.revive-button:hover {
+  background: #5e9a52;
+}
+
+.revive-button:active {
+  background: #3a6230;
+}
+
 .hud-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }

@@ -55,7 +55,10 @@ public static class SnapshotMapper
             .Select(p => new OtherPlayerDto(
                 p.Id, p.Username, p.Position.X, p.Position.Y,
                 p.Stats.Hp, p.Stats.MaxHp,
-                InCombat: p.Mode == GameMode.Combat))
+                InCombat: p.Mode == GameMode.Combat,
+                EquippedWeaponName: p.EquippedWeaponName,
+                IsReviveable: p.Mode == GameMode.Resolution
+                              && state.GetConnection(p.Id) is not null))
             .ToList();
 
         // Spectator view substitutes the viewer's tile coords for the local
@@ -207,7 +210,7 @@ public static class SnapshotMapper
             .Where(e => fog is null || fog[e.Position.X, e.Position.Y] == VisibilityState.Visible)
             .Select(e => new EntityDto(
                 e.Id, e.Type, e.Name ?? "", e.Position.X, e.Position.Y,
-                e.DiedAt, e.Username, e.KillerType, e.ChestKind, e.IsOpen))
+                e.DiedAt, e.Username, e.KillerType, e.PlayerId, e.ChestKind, e.IsOpen))
             .ToList();
 
         var heatDtos = heatmap is null

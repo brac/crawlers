@@ -8,10 +8,11 @@ import {
   joinSession,
   move,
   onSnapshot,
+  reviveTeammate,
   setSpectatorTarget,
 } from "./api/signalr";
 import type { GameStateSnapshotDto } from "./api/types";
-import { GameMode, MoveDirection, TileType } from "./api/types";
+import { EntityType, GameMode, MoveDirection, TileType } from "./api/types";
 import type { AssetLibrary } from "./game/assets";
 import { DungeonView } from "./game/DungeonView";
 import type { CorpseTooltipInfo } from "./game/DungeonRenderer";
@@ -22,6 +23,7 @@ import { FloorTitleCard } from "./ui/FloorTitleCard";
 import { Hud } from "./ui/Hud";
 import { Inventory } from "./ui/Inventory";
 import { MobileControls } from "./ui/MobileControls";
+import { ReviveDialog } from "./ui/ReviveDialog";
 import { RunSummary } from "./ui/RunSummary";
 import { SpectatorOverlay } from "./ui/SpectatorOverlay";
 
@@ -180,6 +182,42 @@ export function Game({ assets, sessionId, localPlayerId, onOpenStats }: GameProp
     void setSpectatorTarget(c, targetId).catch(() => {});
   };
 
+  const handleRevive = (corpsePlayerId: string) => {
+    const c = connectionRef.current;
+    if (!c) return;
+    void reviveTeammate(c, corpsePlayerId).catch(() => {});
+  };
+
+  // Multiplayer revive — find a reviveable teammate's corpse adjacent
+  // to the local (alive) player. The dialog renders when one exists;
+  // walking away naturally dismisses it (next snapshot's adjacency
+  // check fails). Server enforces the same rules; this is purely a UX
+  // gate for showing the button.
+  const reviveTarget = (() => {
+    if (!snapshot) return null;
+    if (snapshot.mode !== GameMode.Exploration) return null;
+    if (snapshot.player.hp <= 1) return null;
+
+    const px = snapshot.player.x;
+    const py = snapshot.player.y;
+    for (const e of snapshot.floor.entities) {
+      if (e.type !== EntityType.Corpse) continue;
+      if (!e.playerId) continue; // unowned/legacy corpse — not reviveable
+      const dx = Math.abs(e.x - px);
+      const dy = Math.abs(e.y - py);
+      if (Math.max(dx, dy) > 1) continue;
+      // Match the corpse to a reviveable teammate by playerId — the
+      // server's IsReviveable flag confirms Mode == Resolution AND
+      // still connected.
+      const teammate = snapshot.otherPlayers.find((op) => op.id === e.playerId);
+      if (!teammate) continue;
+      if (!teammate.isReviveable) continue;
+      const cost = Math.max(1, Math.floor(snapshot.player.hp * 0.20));
+      return { teammate, cost };
+    }
+    return null;
+  })();
+
   const showCombatLog =
     snapshot?.combat &&
     (snapshot.mode === GameMode.Combat ||
@@ -273,6 +311,14 @@ export function Game({ assets, sessionId, localPlayerId, onOpenStats }: GameProp
       )}
       {!runOver && (
         <SpectatorOverlay snapshot={snapshot} onSpectate={handleSpectate} />
+      )}
+      {!runOver && reviveTarget && snapshot && (
+        <ReviveDialog
+          username={reviveTarget.teammate.username}
+          cost={reviveTarget.cost}
+          reviverHp={snapshot.player.hp}
+          onRevive={() => handleRevive(reviveTarget.teammate.id)}
+        />
       )}
       {snapshot?.runSummary && (
         <RunSummary

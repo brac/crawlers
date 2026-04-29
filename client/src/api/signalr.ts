@@ -64,6 +64,13 @@ export function setSpectatorTarget(
   return connection.invoke("SetSpectatorTarget", targetId);
 }
 
+export function reviveTeammate(
+  connection: HubConnection,
+  corpsePlayerId: string,
+): Promise<void> {
+  return connection.invoke("ReviveTeammate", corpsePlayerId);
+}
+
 export function onSnapshot(
   connection: HubConnection,
   handler: (snapshot: GameStateSnapshotDto) => void,

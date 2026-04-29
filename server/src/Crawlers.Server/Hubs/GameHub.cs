@@ -19,6 +19,7 @@ public class GameHub : Hub<IGameClient>
     private readonly CombatService _combat;
     private readonly CombatRunner _combatRunner;
     private readonly DescendService _descend;
+    private readonly ReviveService _revive;
     private readonly ILogger<GameHub> _logger;
 
     public GameHub(
@@ -29,6 +30,7 @@ public class GameHub : Hub<IGameClient>
         CombatService combat,
         CombatRunner combatRunner,
         DescendService descend,
+        ReviveService revive,
         ILogger<GameHub> logger)
     {
         _sessions = sessions;
@@ -38,6 +40,7 @@ public class GameHub : Hub<IGameClient>
         _combat = combat;
         _combatRunner = combatRunner;
         _descend = descend;
+        _revive = revive;
         _logger = logger;
     }
 
@@ -197,6 +200,33 @@ public class GameHub : Hub<IGameClient>
     /// still connected; bad picks are silently ignored (the next snapshot
     /// will keep the prior view).
     /// </summary>
+    /// <summary>
+    /// Multiplayer revive — local (alive) player invokes with the dead
+    /// teammate's id. Server validates adjacency to the corpse, the
+    /// dead teammate's spectator state, and the reviver's HP, then
+    /// pays the 20% tax and brings the teammate back. Failures are
+    /// silent — the next snapshot reflects the resulting state.
+    /// </summary>
+    public async Task ReviveTeammate(Guid corpsePlayerId)
+    {
+        if (!TryGetContext(out var sessionId, out var playerId)) return;
+        var state = _sessions.Get(sessionId);
+        if (state is null) return;
+
+        ReviveService.ReviveResult result;
+        lock (state.SyncRoot)
+        {
+            result = _revive.TryRevive(state, playerId, corpsePlayerId);
+        }
+        if (result == ReviveService.ReviveResult.Success)
+        {
+            _logger.LogInformation(
+                "Player {LiveId} revived player {DeadId} in session {SessionId}",
+                playerId, corpsePlayerId, sessionId);
+            await _broadcaster.BroadcastAsync(state);
+        }
+    }
+
     public async Task SetSpectatorTarget(Guid targetId)
     {
         if (!TryGetContext(out var sessionId, out var playerId)) return;

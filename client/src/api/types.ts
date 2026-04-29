@@ -122,6 +122,10 @@ export interface EntityDto {
   // or null for non-combat deaths / legacy rows.
   username: string | null;
   killerType: string | null;
+  // Owning player id on Corpse entities — used by the revive-dialog
+  // flow to match a corpse to its teammate's OtherPlayerDto. Null on
+  // every other entity type.
+  playerId: string | null;
   // Content-and-Depth Step 3 — chest kind. Set only when type == Chest.
   // Renderer maps this to the right closed-chest sprite (Standard/Empty/
   // Mimic each have their own art row in the sheet). Null on non-chests.
@@ -260,6 +264,13 @@ export interface OtherPlayerDto {
   // ⚔ suffix on their name so non-participants can see at a glance who's
   // fighting.
   inCombat: boolean;
+  // Step 3.4 — equipped weapon name so the renderer can swap this
+  // teammate's held-weapon sprite when they pick up a new one.
+  equippedWeaponName: string | null;
+  // Multiplayer revive — true when this teammate is dead AND still
+  // spectating. Drives the revive-dialog visibility on the client when
+  // the local player is adjacent to their corpse.
+  isReviveable: boolean;
 }
 
 export interface SpectatableTargetDto {
