@@ -122,13 +122,15 @@ public class EnemyAiTests
     [Fact]
     public void TakeTurn_goes_idle_after_grace_ticks_expire()
     {
-        // Wide room so we can exile the player beyond sight radius (5).
+        // Wide room so we can exile the player beyond sight radius (5)
+        // and give the enemy enough space to chase without hitting a wall
+        // before the grace window expires.
         var (state, floor, enemy) = Build(
-            enemyAt: new Position(2, 2), playerAt: new Position(4, 2), roomWidth: 20);
+            enemyAt: new Position(2, 2), playerAt: new Position(4, 2), roomWidth: 60);
         EnemyAi.TakeTurn(state, enemy, floor); // spots player, enemy steps toward (4,2)
 
         // Exile player — guaranteed > 5 tiles from any position enemy reaches.
-        state.PrimaryPlayer.Position = new Position(14, 2);
+        state.PrimaryPlayer.Position = new Position(54, 2);
 
         // Burn through all grace ticks.
         for (int i = 0; i < EnemyAi.GiveUpGrace; i++)

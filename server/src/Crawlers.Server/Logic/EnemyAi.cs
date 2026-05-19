@@ -16,7 +16,7 @@ public static class EnemyAi
     /// Ticks an enemy continues toward the last-seen player tile after
     /// losing line of sight before giving up and going idle.
     /// </summary>
-    public const int GiveUpGrace = 3;
+    public const int GiveUpGrace = 25;
 
     /// <summary>
     /// Returns the highest-priority live player this enemy can currently
