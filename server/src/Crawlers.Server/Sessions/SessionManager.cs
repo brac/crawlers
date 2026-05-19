@@ -172,6 +172,13 @@ public class SessionManager
 
     public int ActiveCount => _sessions.Count;
 
+    /// <summary>
+    /// Snapshot of all active sessions for the AI runner to iterate.
+    /// <see cref="System.Collections.Concurrent.ConcurrentDictionary{TKey,TValue}"/>
+    /// enumeration is snapshot-safe; callers don't need external locking.
+    /// </summary>
+    public IEnumerable<KeyValuePair<Guid, SessionState>> AllSessions => _sessions;
+
     public static EntityStats DefaultPlayerStats() => new()
     {
         // Production values. Damage + InitiativeMod mirror the

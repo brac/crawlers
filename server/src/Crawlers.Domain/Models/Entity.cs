@@ -77,4 +77,18 @@ public class Entity
     /// <c>StatusEffectHelper.Apply</c>.
     /// </summary>
     public StatusEffect? OnHitStatus { get; set; }
+
+    /// <summary>
+    /// AI_BEHAVIOR — last player tile this enemy had line of sight to.
+    /// Used to continue chasing after the player breaks LOS.
+    /// Null until the enemy first spots a player.
+    /// </summary>
+    public Position? LastSeenPlayerTile { get; set; }
+
+    /// <summary>
+    /// AI_BEHAVIOR — ticks remaining to pursue <see cref="LastSeenPlayerTile"/>
+    /// after losing direct line of sight. Decremented each tick while no
+    /// target is visible; enemy idles once it reaches zero.
+    /// </summary>
+    public int GiveUpTicksRemaining { get; set; }
 }

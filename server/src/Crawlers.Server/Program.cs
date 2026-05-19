@@ -36,6 +36,7 @@ builder.Services.AddSingleton<CombatRunner>();
 builder.Services.AddSingleton<DescendService>();
 builder.Services.AddSingleton<ChestService>();
 builder.Services.AddSingleton<ReviveService>();
+builder.Services.AddHostedService<EnemyAiRunner>();
 builder.Services.AddSignalR();
 
 // Persistence — wire DbContext + RunHistoryService when a connection string
