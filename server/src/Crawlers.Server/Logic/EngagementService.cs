@@ -6,7 +6,7 @@ namespace Crawlers.Server.Logic;
 
 public class EngagementService
 {
-    public const int EngagementProximity = 3;
+    public const int EngagementProximity = 1;
 
     public Entity? FindEngagement(SessionState state, Guid playerId)
     {
