@@ -2,9 +2,11 @@
 
 ## What This Is
 
-A real-time co-op multiplayer dungeon crawler. Portfolio-quality project demonstrating server-authoritative game architecture, procedural generation, and D&D-adjacent combat. Code-based lobby (1–4 players), multi-floor session state, shared fog of war, per-player descent, simultaneous combats with friendly fire disabled, dead-body corpses, spectator mode with cross-floor camera follow.
+A real-time co-op multiplayer dungeon crawler. Portfolio-quality project demonstrating server-authoritative game architecture, procedural generation, and D&D-adjacent combat. Code-based lobby (1–4 players), multi-floor session state, shared fog of war, per-player descent, simultaneous combats with friendly fire disabled, dead-body corpses, teammate revive, spectator mode with cross-floor camera follow.
 
-The world is now persistent: corpses, the canonical dungeon, and player identity survive across sessions. Live multiplayer stays party-scoped (room codes); persistence (corpses, heatmap, environmental memory) is world-scoped.
+Enemies hunt: an AI tick gives sighted enemies pursuit, so combat is no longer purely player-initiated. Floors scale in difficulty by depth, with per-floor monster pools, weapon/consumable loot, chests (some are mimics), and lightweight status effects (bleed, poison).
+
+The world is persistent: corpses, the canonical dungeon, and player identity survive across sessions. Live multiplayer stays party-scoped (room codes); persistence (corpses, heatmap, environmental memory) is world-scoped.
 
 The game is **not** based on any existing IP. Tone, mechanics, and universe are original.
 
@@ -16,7 +18,11 @@ The game is **not** based on any existing IP. Tone, mechanics, and universe are 
 - **Visual polish phase 1 + Combat juice:** shipped.
 - **Multiplayer (Steps 1–13):** shipped. See `MULTIPLAYER.md`.
 - **Persistent-world (Steps 1–5, 9–12):** shipped (Steps 6–8 — blood trails, icon placement, icon render — intentionally skipped per portfolio scope). See `PERSISTENT_WORLD.md`.
-- **Content-and-depth:** in progress. See `CONTENT_AND_DEPTH.md`. Step 7 (Action Choices in Combat) lifted into its own follow-up phase — see `COMBAT_AGENCY.md`.
+- **Content-and-depth:** shipped — floor scaling, monster pools, weapon/consumable loot, chests + mimics, status effects (bleed/poison), 4-floor scope with a placeholder Floor 4 boss. See `CONTENT_AND_DEPTH.md`. The Floor 4 capstone boss design is deliberately deferred.
+- **Enemy AI (hunting/chase):** shipped. Sighted enemies pursue on a 700 ms tick. See `AI_BEHAVIOR.md`.
+- **Teammate revive:** shipped. A living teammate adjacent to a dead teammate's corpse can pay HP to revive them.
+- **Combat agency (action choices in combat):** planned, not started — no code yet. See `COMBAT_AGENCY.md`.
+- **Live deploy:** see `DEPLOY.md` (reverse proxy + WS upgrade + Postgres guide). Not yet deployed.
 
 For per-step detail, read the phase docs or `git log`. CLAUDE.md captures durable design — not build progress.
 
@@ -26,33 +32,48 @@ For per-step detail, read the phase docs or `git log`. CLAUDE.md captures durabl
 
 ```
 crawlers/
-├── CLAUDE.md
-├── MULTIPLAYER.md, PERSISTENT_WORLD.md, VISUAL_POLISH.md, CONTENT_AND_DEPTH.md, COMBAT_AGENCY.md
-├── docker-compose.yml, .env.example
+├── CLAUDE.md, README.md
+├── MULTIPLAYER.md, PERSISTENT_WORLD.md, VISUAL_POLISH.md,
+│   CONTENT_AND_DEPTH.md, COMBAT_AGENCY.md, AI_BEHAVIOR.md, DEPLOY.md
+├── docker-compose.yml, .env.example, .github/ (CI)
 ├── server/
 │   ├── Crawlers.slnx
-│   └── src/
-│       ├── Crawlers.Domain/        ← shapes only, no logic
-│       ├── Crawlers.Generation/    ← BSP floor generator + entity placement + ASCII renderer
-│       └── Crawlers.Server/        ← ASP.NET Core + SignalR
-│           ├── Hubs/               (GameHub, LobbyHub, SessionBroadcaster)
-│           ├── Lobbies/            (LobbyManager, LobbyState, code generator)
-│           ├── Sessions/           (SessionManager, SessionState, ActiveCombat, PlayerStartState)
-│           ├── Logic/              (Movement, Engagement, Combat, CombatRunner, Descend, FieldOfView, RunEnd, …)
-│           ├── Persistence/        (CrawlersDbContext, PlayerIdentity / RunHistory / Corpse / FloorWorld / WorldStats services, Migrations/)
-│           └── Contracts/          (DTOs + SnapshotMapper + LobbyMapper)
-└── client/                         ← Vite + React + TS + Pixi.js v8 + SignalR
-    ├── public/assets/dungeon/      (0x72 Dungeon Tileset II + assets.json manifest)
+│   ├── src/
+│   │   ├── Crawlers.Domain/        ← shapes only, no logic (Models/, Enums/)
+│   │   ├── Crawlers.Generation/    ← BSP gen + placement + ASCII renderer
+│   │   │   ├── BspFloorGenerator, BspNode, DoorPlacer, EntityPlacer
+│   │   │   ├── EnemyTemplates, GenerationConfig, FloorAsciiRenderer
+│   │   │   ├── Pathfinding/         (Bfs — enemy chase path search)
+│   │   │   ├── Scaling/             (EnemyScaler, FloorScaling(Table), monster/loot pools)
+│   │   │   └── Weapons/             (WeaponDefinition, WeaponRegistry)
+│   │   └── Crawlers.Server/         ← ASP.NET Core + SignalR
+│   │       ├── Program.cs
+│   │       ├── Config/              (WeaponRegistryLoader + weapons.json, FloorScalingLoader + floor-scaling.json)
+│   │       ├── Hubs/                (GameHub, LobbyHub, SessionBroadcaster, IGameClient, ILobbyClient)
+│   │       ├── Lobbies/             (LobbyManager, LobbyState, LobbyCodeGenerator, LobbyOutcomes)
+│   │       ├── Sessions/            (SessionManager, SessionState, ActiveCombat, PlayerStartState, AdjacentSpawn)
+│   │       ├── Logic/               (Movement, Engagement, Combat(Runner)(Service), Descend, FieldOfView, RunEnd,
+│   │       │                         EnemyAi(Runner)(Movement), ReviveService, ChestService, ItemEffects/Templates,
+│   │       │                         StatusEffectHelper, FloorNameResolver, Dice, …)
+│   │       ├── Persistence/         (CrawlersDbContext + factory, PlayerIdentity / RunHistory / Corpse / FloorWorld /
+│   │       │                         WorldStats services + Null* fallbacks, Floor/Corpse records, WorldConstants, Migrations/)
+│   │       └── Contracts/           (DTOs + SnapshotMapper + LobbyMapper)
+│   └── tests/Crawlers.Tests/        ← xUnit (Generation, Logic, Sessions, Lobbies, Persistence, Contracts, TestSupport)
+└── client/                          ← Vite + React + TS + Pixi.js v8 + SignalR
+    ├── public/assets/dungeon/       (0x72 Dungeon Tileset II + assets.json manifest)
     └── src/
-        ├── api/                    (signalr.ts, lobby.ts, types.ts — TS mirrors of server contracts)
-        ├── game/                   (DungeonRenderer, DungeonView, assets.ts)
-        ├── ui/                     (Hud, CombatLog, Inventory, MobileControls, Lobby, IdentitySetup, SpectatorOverlay, RunSummary, WorldStats, FloorAnnouncer, CorpseTooltip)
-        ├── identity.ts             (localStorage UUID + username)
-        ├── App.tsx                 (asset preload → identity → lobby phase machine → spawn Game)
-        └── Game.tsx                (per-game /game connect, key handling, snapshot → render)
+        ├── api/                     (signalr.ts, lobby.ts, types.ts — TS mirrors of server contracts)
+        ├── game/                    (DungeonRenderer, DungeonView, assets.ts, tileColors.ts)
+        ├── ui/                      (Hud, CombatLog, Inventory, MobileControls, Lobby, IdentitySetup,
+        │                            SpectatorOverlay, RunSummary, WorldStats, FloorAnnouncer, FloorTitleCard,
+        │                            CorpseTooltip, ReviveDialog)
+        ├── dev/                     (SpriteProbe — atlas inspection tooling)
+        ├── identity.ts              (localStorage UUID + username)
+        ├── App.tsx                  (asset preload → identity → lobby phase machine → spawn Game)
+        └── Game.tsx                 (per-game /game connect, key handling, snapshot → render)
 ```
 
-Hubs: `/lobby`, `/game`. REST: `GET /api/world-stats`. Health: `/health`. Server: `localhost:5238` (host) → `8080` (container). Client dev: `localhost:5173`.
+Hubs: `/lobby`, `/game`. REST: `GET /api/world-stats`. Health: `/health`. Root `/` returns a liveness string. Server: `localhost:5238` (host) → `8080` (container). Client dev: `localhost:5173`.
 
 ### Layer rules
 - **Domain** — data shapes only. No logic. No dependencies on other Crawlers projects.
@@ -128,7 +149,7 @@ EXPLORATION → ENGAGEMENT → COMBAT → RESOLUTION → EXPLORATION
 
 **Mode is per-player.** One player can be in Combat while a teammate explores or has died on another floor.
 
-- **Exploration** — free movement (WASD / arrows / mobile D-pad). LOS recomputed each move; engagement triggers on Chebyshev≤3 + Visible-in-fog.
+- **Exploration** — free movement (WASD / arrows / mobile D-pad). LOS recomputed each move; engagement triggers on Chebyshev≤1 (`EngagementProximity`) + Visible-in-fog. Either a player move *into* an enemy or an AI move *into* a player fires the same `EngagementService.Engage`.
 - **Combat** — auto-resolved in rounds. Player may use an item or attempt flee (AoO on flee within melee range). Movement otherwise locked.
 - **Resolution** — combat ends. Survivor flips back to Exploration. Dead players pin to Resolution and drop a Corpse entity; teammates keep playing. The run as a whole ends only when **every** player is in Resolution.
 
@@ -151,6 +172,37 @@ HP / max HP, AC, attack mod, damage (DiceRoll), initiative mod, speed, sight rad
 
 ### Multi-player combat
 `ActiveCombat` carries `ParticipantPlayerIds`, `InitiativeOrder`, per-player `ParticipantOutcomes`, `FleeRequested`, `UseItemRequested`. Late joiners slot at the back of the order without reshuffling. Friendly fire disabled — enemy turn only targets participants.
+
+### Status effects
+Lightweight, server-resolved, extensible (`StatusEffectKind`). Shipped: **Bleed** and **Poison** — applied on hit by certain enemies, tick damage over rounds via `StatusEffectHelper`. Keep the set small (don't add burn/slow/stun in this scope); the system is built to extend without rearchitecture.
+
+---
+
+## Enemy AI (hunting)
+
+Server-authoritative pursuit. `EnemyAiRunner` background task ticks every **700 ms** (slower than combat's 900 ms — chases feel deliberate). Full design and locked decisions in `AI_BEHAVIOR.md`.
+
+- **Trigger**: enemy has Bresenham LOS to a player within `Stats.SightRadius`. Idle enemies are stationary — no random wander.
+- **Behavior**: `EnemyAi` picks the closest visible player (Chebyshev), `Bfs` (capped at `SightRadius + 2`) finds the next step, `EnemyMovement` advances one tile per tick toward it.
+- **Loss of sight**: keeps walking toward `LastSeenPlayerTile` for `GiveUpGrace` (25) ticks, then stops.
+- **Engagement**: an AI move landing at Chebyshev≤1 of a player fires the same `EngagementService.Engage` as a player move.
+- **Skips**: enemies already in combat (CombatRunner owns them), unopened chests/mimics, and room-bound bosses leaving `BossRoomBounds`.
+
+---
+
+## Content & Loot
+
+- **Floor scaling**: `FloorScaling` / `FloorScalingTable` (data-driven from `Config/floor-scaling.json`) sets per-floor monster pools, enemy stat scaling (`EnemyScaler`), and loot weights. 4-floor scope; deeper floors are meaningfully harder.
+- **Enemy archetypes**: `EnemyArchetype` (e.g. caster/status-applier, large monster). Templates in `EnemyTemplates`.
+- **Weapons**: data-driven registry (`Config/weapons.json` → `WeaponRegistry`). Weapons carry damage dice + mods; drop as loot weighted by floor.
+- **Chests & mimics**: `ChestService` opens chests for loot. Some chests are mimics — they start as `EntityType.Chest` (AI ignores them) until opened, then `ChestService` swaps in the Mimic enemy and normal combat/AI rules apply.
+- **Floor 4 boss**: deliberate placeholder. The multi-phase capstone (summons, phase transitions) is deferred to a dedicated future pass.
+
+---
+
+## Revive
+
+Multiplayer-only. A **living** teammate standing adjacent to a dead teammate's corpse calls `GameHub.ReviveTeammate(corpsePlayerId)` → `ReviveService`. The reviver pays **20% of current HP** (min 1) to bring the dead player back. Neither player can be pushed below 1 HP — if the tax would kill the reviver, both end at 1 HP. The dead player must still be in spectator mode (Mode == Resolution, still connected). No cap on revives given or received; a 1-HP reviver is rejected outright (can't pay the tax).
 
 ---
 
@@ -190,8 +242,13 @@ Detail of column shapes lives in the `Persistence/` records — this list is the
 
 - **View**: Top-down (not isometric).
 - **Tile size**: 16 px native, 2×–3× via `worldContainer.scale`.
-- **Sight radius**: Player 5, enemies 4.
+- **Sight radius**: Player 5, enemies 4 (enemy AI pursuit uses each enemy's own `Stats.SightRadius`).
+- **Engagement proximity**: Chebyshev ≤ 1 (`EngagementProximity`).
+- **Enemy AI tick**: 700 ms; give-up grace 25 ticks; BFS path capped at `SightRadius + 2`; no idle wander.
 - **Stat names**: STR / DEX / CON.
+- **Floor scope**: 4 floors, with a placeholder Floor 4 boss (capstone design deferred).
+- **Status effects**: bleed and poison only in this scope.
+- **Revive cost**: 20% of reviver's current HP, neither party below 1 HP.
 - **Class system**: classless at run start; class/archetype system deferred.
 - **Multiplayer locked decisions** (full table in `MULTIPLAYER.md`): code-only joins; 4-player cap; shared fog of war; per-player floor descent; run ends only when all players are dead; friendly fire disabled; corpses persist for the run, don't block movement; 3-second death pause before spectator mode; reconnect to exact pre-disconnect floor and tile.
 - **Persistence scope**: live presence is session-scoped, persistence is world-scoped.

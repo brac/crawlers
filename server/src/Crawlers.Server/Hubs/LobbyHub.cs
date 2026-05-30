@@ -92,7 +92,8 @@ public class LobbyHub : Hub<ILobbyClient>
             {
                 PlayerId = playerId,
                 Username = username,
-                Stats = SessionManager.DefaultPlayerStats()
+                Stats = SessionManager.DefaultPlayerStats(),
+                Inventory = SessionManager.DefaultStartingInventory()
             };
             var newPlayer = _sessions.AddPlayerToSession(sessionId, startState);
             if (newPlayer is null)
@@ -162,7 +163,8 @@ public class LobbyHub : Hub<ILobbyClient>
                 {
                     PlayerId = m.PlayerId,
                     Username = m.Username,
-                    Stats = SessionManager.DefaultPlayerStats()
+                    Stats = SessionManager.DefaultPlayerStats(),
+                    Inventory = SessionManager.DefaultStartingInventory()
                 })
                 .ToList();
         }

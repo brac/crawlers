@@ -28,9 +28,9 @@
       "goldMultiplier":       1.00,
       "tint":                 "#ffffff",
       "stairwellBoss":        "BigSlug",
-      "chestCount":           1,
+      "chestCount":           2,
       "chestKinds": [
-        { "kind": "Standard", "weight": 1 },
+        { "kind": "Standard", "weight": 3 },
         { "kind": "Empty",    "weight": 1 },
         { "kind": "Mimic",    "weight": 1 }
       ],
@@ -49,16 +49,16 @@
     },
     {
       "floor": 2,
-      "hpMultiplier":         1.15,
-      "damageMultiplier":     1.12,
+      "hpMultiplier":         1.10,
+      "damageMultiplier":     1.08,
       "acBonus":              0,
-      "enemyCount":           10,
-      "monsterDensity":       0.70,
+      "enemyCount":           8,
+      "monsterDensity":       0.60,
       "lootQualityMultiplier":1.10,
       "goldMultiplier":       1.20,
       "tint":                 "#cfe5cf",
       "stairwellBoss":        "BigZombie",
-      "chestCount":           2,
+      "chestCount":           3,
       "chestKinds": [
         { "kind": "Standard", "weight": 7 },
         { "kind": "Empty",    "weight": 2 },
@@ -88,20 +88,20 @@
     },
     {
       "floor": 3,
-      "hpMultiplier":         1.32,
-      "damageMultiplier":     1.25,
-      "acBonus":              1,
-      "enemyCount":           13,
-      "monsterDensity":       0.85,
+      "hpMultiplier":         1.22,
+      "damageMultiplier":     1.16,
+      "acBonus":              0,
+      "enemyCount":           10,
+      "monsterDensity":       0.72,
       "lootQualityMultiplier":1.25,
       "goldMultiplier":       1.50,
       "tint":                 "#e5d3b6",
       "stairwellBoss":        "Ogre",
-      "chestCount":           3,
+      "chestCount":           4,
       "chestKinds": [
-        { "kind": "Standard", "weight": 6 },
+        { "kind": "Standard", "weight": 7 },
         { "kind": "Empty",    "weight": 2 },
-        { "kind": "Mimic",    "weight": 2 }
+        { "kind": "Mimic",    "weight": 1 }
       ],
       "weaponLoot": [
         { "name": "Regular Sword", "weight": 2 },
@@ -131,20 +131,20 @@
     },
     {
       "floor": 4,
-      "hpMultiplier":         1.50,
-      "damageMultiplier":     1.40,
-      "acBonus":              1,
-      "enemyCount":           16,
-      "monsterDensity":       0.95,
+      "hpMultiplier":         1.35,
+      "damageMultiplier":     1.26,
+      "acBonus":              0,
+      "enemyCount":           12,
+      "monsterDensity":       0.80,
       "lootQualityMultiplier":1.50,
       "goldMultiplier":       2.00,
       "tint":                 "#e6b4b4",
       "stairwellBoss":        "BigDemon",
-      "chestCount":           3,
+      "chestCount":           4,
       "chestKinds": [
-        { "kind": "Standard", "weight": 5 },
+        { "kind": "Standard", "weight": 6 },
         { "kind": "Empty",    "weight": 1 },
-        { "kind": "Mimic",    "weight": 4 }
+        { "kind": "Mimic",    "weight": 3 }
       ],
       "weaponLoot": [
         { "name": "Knight Sword", "weight": 2 },

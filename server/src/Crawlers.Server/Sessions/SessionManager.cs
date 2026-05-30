@@ -184,9 +184,15 @@ public class SessionManager
         // Production values. Damage + InitiativeMod mirror the
         // equipped Regular Sword (1d6+1, +1 init) so a player without
         // an equipped slot for some reason still hits like one.
-        Hp = 20,
-        MaxHp = 20,
-        Ac = 12,
+        //
+        // Solo-survivability pass: HP 20→26 and AC 12→13. A solo player
+        // carries damage between floors (descending doesn't heal) and
+        // can be chased into back-to-back fights, so the extra HP buffer
+        // and the global −5% enemy hit chance from +1 AC are what give a
+        // careful solo run a real shot at the deepest floor.
+        Hp = 26,
+        MaxHp = 26,
+        Ac = 13,
         AttackMod = 2,
         Damage = new DiceRoll(1, 6, 1),
         InitiativeMod = 1,
@@ -195,6 +201,24 @@ public class SessionManager
         StrMod = 1,
         DexMod = 1,
         ConMod = 1
+    };
+
+    /// <summary>
+    /// The consumables a fresh run begins with. Built fresh per call
+    /// (each <see cref="Crawlers.Server.Logic.ItemTemplates"/> factory
+    /// mints a new Id) so two players in the same lobby don't share item
+    /// instances. Populated by the lobby bridge into each
+    /// <see cref="PlayerStartState.Inventory"/>; kept out of
+    /// <see cref="DefaultPlayerStats"/> so the "fresh run = no carried
+    /// state" contract (FreshCharacterTests) stays about <em>carried</em>
+    /// inventory, not the standard starting kit. Two Healing Draughts is
+    /// the minimum sustain a solo player needs to survive the first
+    /// floors before chests start dropping more.
+    /// </summary>
+    public static List<Item> DefaultStartingInventory() => new()
+    {
+        Crawlers.Server.Logic.ItemTemplates.HealingDraught(),
+        Crawlers.Server.Logic.ItemTemplates.HealingDraught()
     };
 
     /// <summary>

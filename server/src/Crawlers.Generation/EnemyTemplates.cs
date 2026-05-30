@@ -253,7 +253,10 @@ public static class EnemyTemplates
         State = EntityState.Alive,
         Stats = new EntityStats
         {
-            Hp = 60, MaxHp = 60,
+            // Floor-2 stairwell boss. 60 HP made it an unkillable wall for a
+            // solo player; 46 keeps it a clear step up from regulars but
+            // beatable with a found weapon upgrade and a couple of heals.
+            Hp = 46, MaxHp = 46,
             Ac = 11,
             AttackMod = 4,
             Damage = new DiceRoll(2, 6, 1),
@@ -276,10 +279,14 @@ public static class EnemyTemplates
         State = EntityState.Alive,
         Stats = new EntityStats
         {
-            Hp = 70, MaxHp = 70,
+            // Floor-3 stairwell boss. Trimmed from 70 HP / 2d6+2 so a
+            // geared solo player can grind it down with heals rather than
+            // losing the DPS race outright. Still the hardest-hitting,
+            // highest-HP regular-roster enemy.
+            Hp = 56, MaxHp = 56,
             Ac = 12,
             AttackMod = 4,
-            Damage = new DiceRoll(2, 6, 2),
+            Damage = new DiceRoll(2, 6, 1),
             InitiativeMod = -2,
             Speed = 12,
             SightRadius = 4,
@@ -301,7 +308,10 @@ public static class EnemyTemplates
         State = EntityState.Alive,
         Stats = new EntityStats
         {
-            Hp = 32, MaxHp = 32,
+            // 32→26 HP — a mimic ambush plus its bleed could end a solo
+            // run outright; trimmed so the surprise stings without being a
+            // death sentence.
+            Hp = 26, MaxHp = 26,
             Ac = 13,
             AttackMod = 4,
             Damage = new DiceRoll(1, 8, 2),
@@ -328,9 +338,12 @@ public static class EnemyTemplates
         State = EntityState.Alive,
         Stats = new EntityStats
         {
-            Hp = 65, MaxHp = 65,
+            // Floor-4 capstone. 65→54 HP and +5→+4 attack so the final
+            // gate is a tense fight a well-geared solo player can win
+            // rather than a guaranteed wipe.
+            Hp = 54, MaxHp = 54,
             Ac = 13,
-            AttackMod = 5,
+            AttackMod = 4,
             Damage = new DiceRoll(2, 6, 1),
             InitiativeMod = 0,
             Speed = 22,

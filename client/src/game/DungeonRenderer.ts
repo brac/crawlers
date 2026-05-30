@@ -399,6 +399,14 @@ export class DungeonRenderer {
   // combat (the viewer's own + ambient teammate combats on the same floor)
   // and push the events past the watermark into the anim queue.
   private combatWatermarks = new Map<string, number>();
+  // Loot that the server dropped on a kill arrives in the same snapshot as
+  // the killing blow, but the dying enemy's sprite is held on-screen until
+  // its Hit/Crit anim drains (see isReferencedByAnim). Spawning the item
+  // immediately makes the loot "pop in" on top of an enemy that hasn't
+  // visually died yet. We hold newly-appeared item ids here while any combat
+  // anim is in flight and materialize them once the queue drains, so loot
+  // appears only after the death blow finishes.
+  private deferredItemIds = new Set<string>();
   private playerWeapon: Sprite | null = null;
   // Step 3.4 — name of the texture currently on `playerWeapon`. Used to
   // detect equippedWeaponName transitions on snapshot so the texture
@@ -683,6 +691,11 @@ export class DungeonRenderer {
 
 
   private updateEntities(snapshot: GameStateSnapshotDto, snap: boolean) {
+    // A floor/session jump clears the combat-anim queue (ingestCombatEvents
+    // ran first), so nothing is deferred — drop any stale holds from the
+    // floor we just left.
+    if (snap) this.deferredItemIds.clear();
+
     const seen = new Set<string>();
     for (const e of snapshot.floor.entities) {
       seen.add(e.id);
@@ -703,12 +716,14 @@ export class DungeonRenderer {
         }
         continue;
       }
-      const created = this.spawnEntity(e);
-      if (!created) continue;
-      created.sprite.x = target.x;
-      created.sprite.y = target.y;
-      this.spriteLayer.addChild(created.sprite);
-      this.entitySprites.set(e.id, created);
+      // Hold a freshly-dropped loot item until the killing-blow anim drains
+      // so it doesn't appear on top of an enemy that's still mid-death.
+      // flushDeferredItems() spawns it once the queue is empty.
+      if (e.type === EntityType.Item && this.combatAnimInFlight()) {
+        this.deferredItemIds.add(e.id);
+        continue;
+      }
+      this.materializeEntity(e, target.x, target.y);
     }
     for (const [id, tracked] of this.entitySprites.entries()) {
       if (seen.has(id)) continue;
@@ -751,6 +766,42 @@ export class DungeonRenderer {
     return this.animQueue.some(
       (p) => p.actorId === id || p.targetId === id,
     );
+  }
+
+  /// True while a combat animation is playing or queued. Used to hold
+  /// loot drops off-screen until the killing blow finishes.
+  private combatAnimInFlight(): boolean {
+    return this.activeAnim !== null || this.animQueue.length > 0;
+  }
+
+  /// Spawn, position, and register an entity sprite. Shared by the
+  /// snapshot sync and the deferred-loot flush so the two paths can't
+  /// drift. No-op (returns false) when the entity has no texture.
+  private materializeEntity(e: EntityDto, x: number, y: number): boolean {
+    const created = this.spawnEntity(e);
+    if (!created) return false;
+    created.sprite.x = x;
+    created.sprite.y = y;
+    this.spriteLayer.addChild(created.sprite);
+    this.entitySprites.set(e.id, created);
+    return true;
+  }
+
+  /// Materialize loot drops that were held back while the killing-blow
+  /// animation played. Called from the tick once the anim queue drains.
+  /// An id that has since left the snapshot (already picked up, or we
+  /// changed floors) is simply dropped.
+  private flushDeferredItems() {
+    if (this.deferredItemIds.size === 0) return;
+    const snap = this.lastSnapshot;
+    for (const id of this.deferredItemIds) {
+      const e = snap?.floor.entities.find((x) => x.id === id) ?? null;
+      if (e && !this.entitySprites.has(id)) {
+        const target = this.entityTargetPosition(e);
+        this.materializeEntity(e, target.x, target.y);
+      }
+    }
+    this.deferredItemIds.clear();
   }
 
   private updateOtherPlayers(snapshot: GameStateSnapshotDto, snap: boolean) {
@@ -1208,6 +1259,9 @@ export class DungeonRenderer {
     // until the next *unrelated* server broadcast.
     if (!this.activeAnim && this.animQueue.length === 0) {
       this.cullDeferredEntities();
+      // The killing blow has finished — drop any loot we held back so it
+      // appears now rather than on top of the still-dying enemy.
+      this.flushDeferredItems();
     }
 
     // 2) Derived state: zIndex from anchored Y, labels above their owner,
