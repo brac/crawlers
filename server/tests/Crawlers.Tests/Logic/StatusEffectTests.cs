@@ -148,4 +148,29 @@ public class StatusEffectTests
         var floor = state.GetFloorFor(p);
         Assert.Contains(floor.Entities, e => e.Type == EntityType.Corpse && e.PlayerId == p.Id);
     }
+
+    [Fact]
+    public void Poison_kill_in_combat_marks_dead_and_skips_post_death_decrement()
+    {
+        // Regression: a lethal end-of-turn poison tick kills the player and the
+        // turn short-circuits, so their lingering effects are NOT decremented a
+        // final time on a corpse. (The buggy path ran Decrement after death.)
+        var (state, enemy) = CombatTestFactory.BuildEngagement(playerHp: 1, enemyHp: 50);
+        var p = state.PrimaryPlayer;
+        p.StatusEffects.Add(new StatusEffect(StatusEffectKind.Poison, RoundsRemaining: 2, DamagePerTick: 5));
+
+        // Initiative: player (18) before enemy (3). Player's attack misses
+        // (roll 3 → no damage dice consumed); the end-of-turn poison tick then
+        // drops them from 1 HP to 0 before the enemy ever acts.
+        var dice = new ScriptedDice(d20: new[] { 18, 3, 3 });
+
+        var svc = new CombatService();
+        var combat = svc.Start(state, enemy, new[] { p }, dice);
+        var result = svc.ProcessNextRound(state, combat, dice);
+
+        Assert.True(result.Ended);
+        Assert.Equal(GameMode.Resolution, p.Mode);
+        Assert.DoesNotContain(p.Id, combat.ParticipantPlayerIds);
+        Assert.Equal(2, p.StatusEffects.Single(s => s.Kind == StatusEffectKind.Poison).RoundsRemaining);
+    }
 }

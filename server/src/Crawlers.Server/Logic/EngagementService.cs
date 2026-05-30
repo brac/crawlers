@@ -50,8 +50,11 @@ public class EngagementService
         var nearby = new List<Player>();
         foreach (var p in state.PlayersOnFloor(floor.FloorNumber))
         {
-            // Spectators and dead players don't engage.
-            if (p.Mode == GameMode.Resolution) continue;
+            // Spectators and dead players don't engage. Players already in a
+            // fight aren't pulled in either — otherwise CombatService.Start
+            // would re-bind them (state.SetCombat + Mode=Combat) into a second
+            // combat, orphaning the first. Only Exploration-mode players join.
+            if (p.Mode != GameMode.Exploration) continue;
 
             int dx = Math.Abs(p.Position.X - enemy.Position.X);
             int dy = Math.Abs(p.Position.Y - enemy.Position.Y);

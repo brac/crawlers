@@ -58,6 +58,46 @@ public class EngagementServiceTests
         Assert.Null(new EngagementService().FindEngagement(state, state.PrimaryPlayer.Id));
     }
 
+    [Fact]
+    public void PlayersInRange_includes_exploring_player_next_to_enemy()
+    {
+        var state = BuildSession(playerAt: new Position(2, 2));
+        var enemy = AddEnemy(state, new Position(3, 2));
+
+        var inRange = new EngagementService()
+            .PlayersInRange(state, state.GetFloorFor(state.PrimaryPlayer), enemy);
+
+        Assert.Contains(inRange, p => p.Id == state.PrimaryPlayer.Id);
+    }
+
+    [Fact]
+    public void PlayersInRange_excludes_player_already_in_combat()
+    {
+        // Regression: a player already locked in another fight must not be
+        // pulled into a fresh engagement. CombatService.Start re-binds every
+        // returned participant (state.SetCombat + Mode=Combat), so returning a
+        // Combat-mode player here would orphan their original combat.
+        var state = BuildSession(playerAt: new Position(2, 2));
+        var enemy = AddEnemy(state, new Position(3, 2));
+
+        var busy = new Player
+        {
+            Id = Guid.NewGuid(),
+            SessionId = state.Session.Id,
+            Position = new Position(3, 3), // Chebyshev 1 from the enemy
+            Stats = new EntityStats { Hp = 10, MaxHp = 10, SightRadius = 5 },
+            CurrentFloorNumber = 1,
+            Mode = GameMode.Combat
+        };
+        state.AddPlayer(busy);
+
+        var inRange = new EngagementService()
+            .PlayersInRange(state, state.GetFloorFor(state.PrimaryPlayer), enemy);
+
+        Assert.Contains(inRange, p => p.Id == state.PrimaryPlayer.Id);
+        Assert.DoesNotContain(inRange, p => p.Id == busy.Id);
+    }
+
     private static SessionState BuildSession(Position playerAt, int width = 10, int height = 5)
     {
         var grid = new Tile[width, height];

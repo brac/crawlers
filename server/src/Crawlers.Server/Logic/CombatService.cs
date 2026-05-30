@@ -172,7 +172,10 @@ public class CombatService
                 // skip the end-of-turn poison + decrement in that case.
                 if (player.Stats.Hp > 0 && combat.HasParticipant(player.Id))
                 {
-                    TickPlayerPoison(state, combat, player, enemy, round, exits);
+                    // A poison-kill marks the player dead (Resolution, removed
+                    // from participants) — skip decrementing a corpse's effects.
+                    if (TickPlayerPoison(state, combat, player, enemy, round, exits))
+                        continue;
                 }
                 StatusEffectHelper.Decrement(player.StatusEffects);
             }
@@ -590,8 +593,12 @@ public class CombatService
         return false;
     }
 
-    /// <summary>End-of-turn Poison tick on a player. Same semantics as Bleed but at end of turn.</summary>
-    private static void TickPlayerPoison(
+    /// <summary>
+    /// End-of-turn Poison tick on a player. Same semantics as Bleed but at end
+    /// of turn. Returns true if the tick killed the player (so the caller skips
+    /// the end-of-turn status decrement on a now-dead player).
+    /// </summary>
+    private static bool TickPlayerPoison(
         SessionState state,
         ActiveCombat combat,
         Player player,
@@ -600,7 +607,7 @@ public class CombatService
         List<(Guid, CombatOutcome)> exits)
     {
         var dmg = StatusEffectHelper.TickDamage(player.StatusEffects, StatusEffectKind.Poison);
-        if (dmg <= 0) return;
+        if (dmg <= 0) return false;
         var newHp = Math.Max(0, player.Stats.Hp - dmg);
         player.Stats = player.Stats with { Hp = newHp };
         round.Events.Add(new CombatEvent
@@ -611,7 +618,11 @@ public class CombatService
             Description = $"Player {ShortTag(player.Id)} suffers {dmg} from poison. ({newHp}/{player.Stats.MaxHp})"
         });
         if (newHp <= 0)
+        {
             MarkPlayerDied(state, combat, player, enemy, round, exits);
+            return true;
+        }
+        return false;
     }
 
     /// <summary>Bleed tick on the enemy. Returns true if any damage was applied.</summary>

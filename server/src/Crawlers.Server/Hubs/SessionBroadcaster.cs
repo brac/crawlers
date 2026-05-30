@@ -21,15 +21,24 @@ public class SessionBroadcaster
 
     public async Task BroadcastAsync(SessionState state)
     {
-        // Snapshot the players list inside the lock so the caller's lock
-        // serializes us with mutators. Mappers run after the lock is gone —
-        // they only read primitive copies into the DTO.
+        // Build every player's snapshot under SyncRoot. Callers release their
+        // own lock before calling us (see GameHub / CombatRunner / EnemyAiRunner),
+        // so we must re-acquire it here — otherwise the mapper reads Players /
+        // ActiveCombats / fog while a background tick mutates them on another
+        // thread (collection-modified throw or torn reads), and the four
+        // per-player snapshots in one broadcast can disagree about world state.
+        // The lock spans only the synchronous build; the awaited sends happen
+        // after it's released so SignalR I/O never blocks mutators. C# locks
+        // are reentrant, so a caller that still holds it is harmless.
         var sends = new List<(string connectionId, GameStateSnapshotDto snap)>();
-        foreach (var p in state.Players)
+        lock (state.SyncRoot)
         {
-            var connId = state.GetConnection(p.Id);
-            if (connId is null) continue;
-            sends.Add((connId, SnapshotMapper.ToSnapshot(state, p.Id)));
+            foreach (var p in state.Players)
+            {
+                var connId = state.GetConnection(p.Id);
+                if (connId is null) continue;
+                sends.Add((connId, SnapshotMapper.ToSnapshot(state, p.Id)));
+            }
         }
 
         foreach (var (connId, snap) in sends)

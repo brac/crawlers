@@ -212,4 +212,34 @@ public class ReviveServiceTests
         var result = new ReviveService().TryRevive(state, live.Id, dead.Id);
         Assert.Equal(ReviveService.ReviveResult.Rejected, result);
     }
+
+    [Fact]
+    public void Revive_does_not_place_teammate_on_an_occupied_tile()
+    {
+        // Reviver stands ON the corpse tile (Chebyshev 0 is valid adjacency).
+        // The revived teammate must be relocated to a free tile rather than
+        // stacked on top of the living reviver.
+        var (state, live, dead, _) = BuildScene(
+            livePos: new Position(4, 3),
+            corpsePos: new Position(4, 3));
+
+        var result = new ReviveService().TryRevive(state, live.Id, dead.Id);
+
+        Assert.Equal(ReviveService.ReviveResult.Success, result);
+        Assert.NotEqual(live.Position, dead.Position);
+    }
+
+    [Fact]
+    public void Revive_lands_on_corpse_tile_when_it_is_clear()
+    {
+        // The common case: corpse tile is free, so the revived teammate stands
+        // exactly where they fell.
+        var (state, live, dead, corpse) = BuildScene(
+            livePos: new Position(3, 3),
+            corpsePos: new Position(4, 3));
+
+        new ReviveService().TryRevive(state, live.Id, dead.Id);
+
+        Assert.Equal(corpse.Position, dead.Position);
+    }
 }

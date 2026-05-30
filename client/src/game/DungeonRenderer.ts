@@ -540,7 +540,12 @@ export class DungeonRenderer {
   private drawTiles(snapshot: GameStateSnapshotDto) {
     const { width, height, tiles, visibility, rooms, heatmap } = snapshot.floor;
     const salt = snapshot.floorNumber;
-    this.tileLayer.removeChildren();
+    // Destroy the previous batch, don't just detach it. drawTiles runs on every
+    // snapshot and rebuilds up to width×height Sprites; removeChildren() alone
+    // orphans the old ones and leaks them (Pixi display objects aren't GC'd
+    // while their GPU resources are live). Default destroy() keeps the shared
+    // cached textures — it only frees the sprite objects.
+    for (const child of this.tileLayer.removeChildren()) child.destroy();
 
     // Step 9 — build a sparse "tint per tile" map from the death heatmap.
     // Hottest tile drives the saturation curve so a floor with a few

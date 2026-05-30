@@ -109,15 +109,19 @@ public class CombatRunner
                 if (state is null) return;
 
                 CombatRoundResult result;
-                ActiveCombat? snapshotCombat;
                 RunOutcome? endedThisTick;
+                // Death narrative/killer tag, resolved inside the lock because
+                // it reads floor.Entities (mutated by other ticks). Captured
+                // here so the post-lock persistence loop doesn't touch shared
+                // collections off-lock.
+                (string? Cause, string? Killer) deathContext = (null, null);
                 lock (state.SyncRoot)
                 {
                     var combat = state.GetCombatByEnemy(enemyId);
-                    snapshotCombat = combat;
                     if (combat is null) return;
 
                     result = _combat.ProcessNextRound(state, combat, dice);
+                    deathContext = ResolveDeathContext(state, combat);
 
                     // Apply the run-end transition while the lock is held so
                     // the snapshot built by the broadcast below already shows
@@ -128,6 +132,7 @@ public class CombatRunner
 
                 await _broadcaster.BroadcastAsync(state);
 
+                bool runEndedThisTick = endedThisTick is RunOutcome;
                 if (endedThisTick is RunOutcome runOutcome)
                 {
                     _logger.LogInformation(
@@ -142,7 +147,7 @@ public class CombatRunner
                 foreach (var (pid, outcome) in result.ExitedThisRound)
                 {
                     if (outcome != CombatOutcome.PlayerDied) continue;
-                    var (cause, killer) = ResolveDeathContext(state, snapshotCombat);
+                    var (cause, killer) = deathContext;
                     try
                     {
                         await _runHistory.RecordDeathAsync(state, pid, cause, ct);
@@ -163,6 +168,20 @@ public class CombatRunner
                             "Failed to persist corpse for session {SessionId} player {PlayerId}",
                             sessionId, pid);
                     }
+                }
+
+                // Run is over (every player in Resolution). The final summary
+                // broadcast + this tick's deaths are already persisted above,
+                // so tear down: cancel every combat runner for this session
+                // (including this one) and drop the session so it doesn't leak
+                // in SessionManager. The AI runner already skips IsRunOver
+                // sessions; this also stops sibling combat tasks immediately
+                // rather than waiting for their next Get() to return null.
+                if (runEndedThisTick)
+                {
+                    StopAllForSession(sessionId);
+                    _sessions.Remove(sessionId);
+                    return;
                 }
 
                 if (result.Ended)

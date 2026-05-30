@@ -12,12 +12,19 @@ interface DungeonViewProps {
 export function DungeonView({ snapshot, assets, onCorpseHover }: DungeonViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<DungeonRenderer | null>(null);
+  // mount() is async; the renderer ref is set synchronously but isn't ready to
+  // accept snapshots until mount resolves. Track readiness and hold the latest
+  // snapshot so one that arrives mid-mount (e.g. the server pushes immediately
+  // on JoinSession) is flushed once we're ready instead of silently dropped.
+  const readyRef = useRef(false);
+  const latestSnapshotRef = useRef<GameStateSnapshotDto | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
     const container = containerRef.current;
     const renderer = new DungeonRenderer(assets);
     rendererRef.current = renderer;
+    readyRef.current = false;
     let cancelled = false;
 
     void (async () => {
@@ -30,6 +37,11 @@ export function DungeonView({ snapshot, assets, onCorpseHover }: DungeonViewProp
         renderer.destroy();
         return;
       }
+      readyRef.current = true;
+      // Flush a snapshot that landed before mount finished.
+      if (latestSnapshotRef.current) {
+        renderer.setSnapshot(latestSnapshotRef.current);
+      }
     })();
 
     const onResize = () => {
@@ -41,6 +53,7 @@ export function DungeonView({ snapshot, assets, onCorpseHover }: DungeonViewProp
 
     return () => {
       cancelled = true;
+      readyRef.current = false;
       window.removeEventListener("resize", onResize);
       window.visualViewport?.removeEventListener("resize", onResize);
       renderer.destroy();
@@ -49,8 +62,13 @@ export function DungeonView({ snapshot, assets, onCorpseHover }: DungeonViewProp
   }, [assets]);
 
   useEffect(() => {
-    if (!snapshot || !rendererRef.current) return;
-    rendererRef.current.setSnapshot(snapshot);
+    if (!snapshot) return;
+    // Always record the latest snapshot so the mount-completion handler can
+    // flush it; apply immediately only once the renderer is mounted.
+    latestSnapshotRef.current = snapshot;
+    if (readyRef.current && rendererRef.current) {
+      rendererRef.current.setSnapshot(snapshot);
+    }
   }, [snapshot]);
 
   // Re-bind whenever the parent's handler identity changes. Cleanup nulls

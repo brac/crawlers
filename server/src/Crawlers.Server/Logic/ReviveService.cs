@@ -81,11 +81,25 @@ public class ReviveService
             revivedHp = Math.Min(dead.Stats.MaxHp, tax);
         }
 
+        // The revived player stands on the corpse tile when it's clear, but a
+        // living teammate or enemy may be standing there (narrow corridors).
+        // BFS from the corpse for the nearest free walkable tile so two
+        // entities never share a tile. The corpse tile itself is returned when
+        // unoccupied.
+        var occupied = new HashSet<Position>();
+        foreach (var p in state.PlayersOnFloor(dead.CurrentFloorNumber))
+            if (p.Id != dead.Id && p.Mode != GameMode.Resolution)
+                occupied.Add(p.Position);
+        foreach (var e in floor.Entities)
+            if (e.Type == EntityType.Enemy && e.State == EntityState.Alive)
+                occupied.Add(e.Position);
+        var revivePos = AdjacentSpawn.PickOne(floor, corpseEntity.Position, occupied);
+
         // Apply mutations.
         live.Stats = live.Stats with { Hp = liveNewHp };
         dead.Stats = dead.Stats with { Hp = revivedHp };
         dead.Mode = GameMode.Exploration;
-        dead.Position = corpseEntity.Position;
+        dead.Position = revivePos;
         dead.DiedAt = null;
         dead.CauseOfDeath = null;
         dead.SpectatorTargetId = null;
