@@ -1,5 +1,7 @@
 # Crawlers
 
+**▶ Play it live at [crawlers.brac.dev](https://crawlers.brac.dev)**
+
 A single-player dungeon crawler with a multiplayer-ready, server-authoritative architecture. C# / ASP.NET Core backend over SignalR, React + Pixi.js client, Postgres for persistence.
 
 The game and its lore are original. See [`CLAUDE.md`](./CLAUDE.md) for the design and architectural decisions.
