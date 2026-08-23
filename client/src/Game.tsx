@@ -61,10 +61,23 @@ interface GameProps {
   assets: AssetLibrary;
   sessionId: string;
   localPlayerId: string;
+  /**
+   * Secret handed to us by the lobby when we took our seat. Proves to the
+   * game hub that we are `localPlayerId` rather than someone who merely read
+   * that id off a lobby roster. Passed straight to JoinSession and used
+   * nowhere else, never rendered, never logged.
+   */
+  sessionToken: string;
   onOpenStats: () => void;
 }
 
-export function Game({ assets, sessionId, localPlayerId, onOpenStats }: GameProps) {
+export function Game({
+  assets,
+  sessionId,
+  localPlayerId,
+  sessionToken,
+  onOpenStats,
+}: GameProps) {
   const [status, setStatus] = useState<Status>({ kind: "connecting" });
   const [snapshot, setSnapshot] = useState<GameStateSnapshotDto | null>(null);
   const connectionRef = useRef<HubConnection | null>(null);
@@ -113,7 +126,7 @@ export function Game({ assets, sessionId, localPlayerId, onOpenStats }: GameProp
           setSnapshot(snap);
         });
         setStatus({ kind: "joining" });
-        const initial = await joinSession(c, sessionId, localPlayerId);
+        const initial = await joinSession(c, sessionId, localPlayerId, sessionToken);
         if (cancelled) {
           await c.stop();
           return;
@@ -174,7 +187,7 @@ export function Game({ assets, sessionId, localPlayerId, onOpenStats }: GameProp
       void connectionRef.current?.stop();
       connectionRef.current = null;
     };
-  }, [sessionId, localPlayerId]);
+  }, [sessionId, localPlayerId, sessionToken]);
 
   const handleSpectate = (targetId: string) => {
     const c = connectionRef.current;

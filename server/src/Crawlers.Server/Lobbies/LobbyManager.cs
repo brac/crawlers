@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Crawlers.Domain.Enums;
 using Crawlers.Domain.Models;
+using Crawlers.Server.Security;
 
 namespace Crawlers.Server.Lobbies;
 
@@ -59,7 +60,8 @@ public class LobbyManager
             PlayerId = hostPlayerId,
             Username = hostUsername,
             ConnectionId = hostConnectionId,
-            JoinedAt = room.CreatedAt
+            JoinedAt = room.CreatedAt,
+            SessionToken = SessionTokens.Mint()
         });
 
         var state = new LobbyState(room);
@@ -89,7 +91,8 @@ public class LobbyManager
                 PlayerId = playerId,
                 Username = username,
                 ConnectionId = connectionId,
-                JoinedAt = DateTimeOffset.UtcNow
+                JoinedAt = DateTimeOffset.UtcNow,
+                SessionToken = SessionTokens.Mint()
             });
             _playerToLobby[playerId] = lobbyId;
             return new(LobbyJoinResult.Success, state);

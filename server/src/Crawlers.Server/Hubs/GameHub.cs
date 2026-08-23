@@ -12,6 +12,14 @@ public class GameHub : Hub<IGameClient>
     private const string SessionIdKey = "sessionId";
     private const string PlayerIdKey = "playerId";
 
+    /// <summary>
+    /// The single failure message <see cref="JoinSession"/> reports, whatever
+    /// went wrong. Deliberately says nothing about whether the session
+    /// existed, whether the player was in it, or whether the token was the
+    /// part that failed.
+    /// </summary>
+    private const string JoinRejected = "JoinRejected";
+
     private readonly SessionManager _sessions;
     private readonly SessionBroadcaster _broadcaster;
     private readonly MovementService _movement;
@@ -46,29 +54,54 @@ public class GameHub : Hub<IGameClient>
 
     /// <summary>
     /// Bind this connection to an existing multi-player session and player
-    /// (created by the lobby bridge in <see cref="LobbyHub.StartGame"/>). The
-    /// player id is supplied by the client because the lobby connection
-    /// already handed them their identity; on a fresh /game connection
-    /// Context.Items is empty and we have no other way to identify them
-    /// without an auth layer (Step 12 territory).
+    /// (created by the lobby bridge in <see cref="LobbyHub.StartGame"/>). On a
+    /// fresh /game connection Context.Items is empty, so the caller has to say
+    /// who they are, and this is the one method that decides whether to
+    /// believe them. Every other method on this hub reads its identity from
+    /// Context.Items, which only a successful call to this method ever sets.
+    ///
+    /// SECURITY: <paramref name="playerId"/> is public. It is broadcast to the
+    /// whole lobby in LobbyMemberDto and rides along in every snapshot's
+    /// OtherPlayers list, so a teammate can trivially name someone else's
+    /// player id. The proof is <paramref name="sessionToken"/>, minted by the
+    /// server when the player took their lobby seat and returned only to that
+    /// one connection. Without it a caller could bind to any player id they
+    /// had ever seen, which silently repoints that player's connection
+    /// mapping, cuts them off from snapshots, and hands their character to the
+    /// attacker.
+    ///
+    /// Two properties matter as much as the check itself:
+    ///
+    /// 1. Nothing is mutated before the token is validated. A rejection that
+    ///    has already overwritten the victim's connection mapping is still a
+    ///    successful hijack, even though it throws.
+    /// 2. The failure is a single generic message for every reason. Distinct
+    ///    "SessionNotFound" / "PlayerNotInSession" / "BadToken" errors turn
+    ///    this method into an oracle for enumerating live sessions and their
+    ///    rosters.
     /// </summary>
-    public async Task<GameStateSnapshotDto> JoinSession(Guid sessionId, Guid playerId)
+    public async Task<GameStateSnapshotDto> JoinSession(Guid sessionId, Guid playerId, string sessionToken)
     {
         var state = _sessions.Get(sessionId)
-            ?? throw new HubException("SessionNotFound");
-        var player = state.GetPlayer(playerId)
-            ?? throw new HubException("PlayerNotInSession");
+            ?? throw new HubException(JoinRejected);
+
+        Player player;
+        GameStateSnapshotDto snapshot;
+        lock (state.SyncRoot)
+        {
+            // Validate first, mutate second. Both live under the same lock so
+            // a concurrent AddPlayerToSession cannot land between them.
+            if (!state.IsSessionTokenValid(playerId, sessionToken))
+                throw new HubException(JoinRejected);
+
+            player = state.GetPlayer(playerId)!;
+            state.SetConnection(playerId, Context.ConnectionId);
+            snapshot = SnapshotMapper.ToSnapshot(state, playerId);
+        }
 
         Context.Items[SessionIdKey] = sessionId;
         Context.Items[PlayerIdKey] = playerId;
         await Groups.AddToGroupAsync(Context.ConnectionId, sessionId.ToString());
-
-        GameStateSnapshotDto snapshot;
-        lock (state.SyncRoot)
-        {
-            state.SetConnection(playerId, Context.ConnectionId);
-            snapshot = SnapshotMapper.ToSnapshot(state, playerId);
-        }
 
         // Re-broadcast so every other player sees the new joiner appear in
         // their OtherPlayers list (no-op for solo sessions).

@@ -59,6 +59,7 @@ public class SessionState
     private readonly Dictionary<int, string> _floorTints = new();
     private readonly Dictionary<Guid, ActiveCombat> _combats = new();
     private readonly Dictionary<Guid, string> _connections = new();
+    private readonly Dictionary<Guid, string> _sessionTokens = new();
 
     public IReadOnlyList<Player> Players => _players;
     public IReadOnlyDictionary<int, Floor> Floors => _floors;
@@ -165,6 +166,47 @@ public class SessionState
     }
     public void SetCombat(Guid playerId, ActiveCombat combat) => _combats[playerId] = combat;
     public void ClearCombat(Guid playerId) => _combats.Remove(playerId);
+
+    /// <summary>
+    /// Record the secret token that proves a caller is this player. Set once
+    /// per player when they are seated in the session and never rotated for
+    /// the life of the run, so a legitimate reconnect can rebind with the
+    /// same token.
+    ///
+    /// Tokens live here, on the session, rather than on <see cref="Player"/>
+    /// or on any global per-player record, for two reasons. First,
+    /// <see cref="Player"/> feeds the snapshot mapper, and a credential
+    /// should not sit one careless field addition away from a broadcast
+    /// payload. Second, scoping the token to a session means a token stolen
+    /// or replayed from one run is worthless in the next.
+    ///
+    /// Caller holds <see cref="SyncRoot"/>.
+    /// </summary>
+    public void SetSessionToken(Guid playerId, string token) =>
+        _sessionTokens[playerId] = token;
+
+    /// <summary>
+    /// Server-internal read of a player's session token, used by the lobby
+    /// bridge and by tests. This value must never be mapped into a DTO, put
+    /// in a log line, or sent anywhere other than the single connection that
+    /// owns the player. Caller holds <see cref="SyncRoot"/>.
+    /// </summary>
+    public string? GetSessionToken(Guid playerId) =>
+        _sessionTokens.TryGetValue(playerId, out var t) ? t : null;
+
+    /// <summary>
+    /// Whether <paramref name="presented"/> is the token that was minted for
+    /// <paramref name="playerId"/> in this session. False when the player is
+    /// not in the session at all, so callers get one answer for "no such
+    /// player" and "wrong token" and cannot use the hub as an oracle for
+    /// which player ids exist. Constant-time on the token compare.
+    /// Caller holds <see cref="SyncRoot"/>.
+    /// </summary>
+    public bool IsSessionTokenValid(Guid playerId, string? presented)
+    {
+        if (GetPlayer(playerId) is null) return false;
+        return Crawlers.Server.Security.SessionTokens.Matches(GetSessionToken(playerId), presented);
+    }
 
     public void SetConnection(Guid playerId, string connectionId) =>
         _connections[playerId] = connectionId;

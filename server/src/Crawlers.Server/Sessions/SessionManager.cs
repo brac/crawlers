@@ -5,6 +5,7 @@ using Crawlers.Generation;
 using Crawlers.Generation.Scaling;
 using Crawlers.Server.Logic;
 using Crawlers.Server.Persistence;
+using Crawlers.Server.Security;
 
 namespace Crawlers.Server.Sessions;
 
@@ -81,6 +82,10 @@ public class SessionManager
                 };
                 foreach (var item in start.Inventory) player.Inventory.Add(item);
                 state.AddPlayer(player);
+                // Every seated player gets a token, even on paths that did not
+                // supply one (solo test sessions), so "player exists but has no
+                // token" is never a reachable state a caller could exploit.
+                state.SetSessionToken(player.Id, start.SessionToken ?? SessionTokens.Mint());
             }
 
             // Compute the shared fog from the union of all spawn positions in
@@ -116,17 +121,35 @@ public class SessionManager
     /// near that floor's stairs-up anchor. Returns null if the session is
     /// gone (race).
     /// </summary>
-    public Player? AddPlayerToSession(Guid sessionId, PlayerStartState start)
+    public Player? AddPlayerToSession(Guid sessionId, PlayerStartState start) =>
+        AddPlayerToSession(sessionId, start, out _);
+
+    /// <inheritdoc cref="AddPlayerToSession(Guid, PlayerStartState)"/>
+    /// <param name="alreadyInSession">
+    /// True when a player with this id was already seated and the returned
+    /// record is the pre-existing one. Callers that hand a session token back
+    /// to the caller must check this: the existing player already has a token
+    /// held by whoever legitimately claimed that seat, and re-minting one for
+    /// a second caller would hand them the first caller's character. The
+    /// lobby bridge rejects that case outright.
+    /// </param>
+    public Player? AddPlayerToSession(Guid sessionId, PlayerStartState start, out bool alreadyInSession)
     {
+        alreadyInSession = false;
         if (!_sessions.TryGetValue(sessionId, out var state)) return null;
 
         lock (state.SyncRoot)
         {
             // Idempotent: if a player with this id is already in the session
             // (re-enter race, refresh-and-rejoin), just hand back the existing
-            // record rather than adding a duplicate.
+            // record rather than adding a duplicate. The existing token is
+            // left alone; see the alreadyInSession note above.
             var already = state.GetPlayer(start.PlayerId);
-            if (already is not null) return already;
+            if (already is not null)
+            {
+                alreadyInSession = true;
+                return already;
+            }
 
             var floor = EnsureFloor(state, start.FloorNumber);
 
@@ -153,6 +176,7 @@ public class SessionManager
             };
             foreach (var item in start.Inventory) player.Inventory.Add(item);
             state.AddPlayer(player);
+            state.SetSessionToken(player.Id, start.SessionToken ?? SessionTokens.Mint());
 
             // Joiner contributes to this floor's shared fog. Recomputing
             // from all players keeps the union semantics correct (an existing

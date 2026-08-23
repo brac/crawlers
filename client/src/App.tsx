@@ -22,6 +22,11 @@ import {
   saveIdentity,
 } from "./identity";
 import { IdentitySetup } from "./ui/IdentitySetup";
+import {
+  forgetSessionToken,
+  readSessionToken,
+  rememberSessionToken,
+} from "./sessionToken";
 import { Lobby, type LobbyView } from "./ui/Lobby";
 import { WorldStats } from "./ui/WorldStats";
 import "./App.css";
@@ -54,6 +59,9 @@ type Phase =
       kind: "in-game";
       identity: StoredIdentity;
       sessionId: string;
+      // Secret seat credential from the lobby. Required by JoinSession;
+      // held only in memory and never rendered or logged.
+      sessionToken: string;
     }
   // Step 12 — public stats page. Reachable from the lobby menu and from
   // the run summary (visible from before-you-play and after-you-die).
@@ -71,6 +79,9 @@ const ERROR_TEXT: Record<string, string> = {
   NotIdentified: "Lost your identity. Please refresh.",
   InvalidUsername: "That name isn't allowed. Try a different one.",
   InvalidPlayerId: "Player id was invalid. Refresh to regenerate.",
+  AlreadyInSession:
+    "That character is already in the run. Rejoining from a new tab isn't supported.",
+  JoinRejected: "Couldn't join that run. Go back and join the room again.",
 };
 
 function mapLobbyError(err: unknown): string {
@@ -187,6 +198,9 @@ export default function App() {
             kind: "in-game",
             identity: cur.identity,
             sessionId,
+            // Minted when we joined this lobby; the game hub will not bind
+            // this connection to our player without it.
+            sessionToken: readSessionToken() ?? "",
           });
         });
 
@@ -267,6 +281,7 @@ export default function App() {
     if (cur.kind !== "lobby-menu") return;
     void lobbyConnRef.current?.stop();
     lobbyConnRef.current = null;
+    forgetSessionToken();
     setPhaseSync({
       kind: "identity-setup",
       existing: cur.identity,
@@ -282,6 +297,7 @@ export default function App() {
     setPhaseSync({ ...cur, busy: true, error: null });
     try {
       const result = await createRoom(c);
+      rememberSessionToken(result.sessionToken);
       setPhaseSync({
         kind: "lobby-room",
         identity: cur.identity,
@@ -301,6 +317,7 @@ export default function App() {
     setPhaseSync({ ...cur, busy: true, error: null });
     try {
       const result = await joinRoomByCode(c, code);
+      rememberSessionToken(result.sessionToken);
 
       // Late-join: lobby is already InGame and carries the session id, so we
       // skip the lobby-room view and drop the joiner straight into /game.
@@ -314,6 +331,7 @@ export default function App() {
           kind: "in-game",
           identity: cur.identity,
           sessionId: result.lobby.sessionId,
+          sessionToken: result.sessionToken,
         });
         return;
       }
@@ -340,6 +358,7 @@ export default function App() {
       // Ignore — server-side state is the source of truth and we're going
       // back to the menu regardless.
     }
+    forgetSessionToken();
     setPhaseSync({
       kind: "lobby-menu",
       identity: cur.identity,
@@ -434,6 +453,7 @@ export default function App() {
           assets={assets}
           sessionId={phase.sessionId}
           localPlayerId={phase.identity.playerId}
+          sessionToken={phase.sessionToken}
           onOpenStats={handleOpenStats}
         />
       </div>

@@ -22,6 +22,19 @@ public class PlayerStartState
     /// </summary>
     public string Username { get; init; } = string.Empty;
 
+    /// <summary>
+    /// The secret token this player will use to bind a /game connection to
+    /// themselves. Minted by the lobby the moment the player takes a seat and
+    /// carried through here so the token the client was handed is the same one
+    /// the session ends up trusting.
+    ///
+    /// Null means "no token came from upstream", in which case
+    /// <see cref="SessionManager"/> mints one. That keeps every seated player
+    /// covered by a token no matter which path created them, so there is no
+    /// code path where an empty token is the expected value.
+    /// </summary>
+    public string? SessionToken { get; init; }
+
     public required EntityStats Stats { get; init; }
     public List<Item> Inventory { get; init; } = new();
 

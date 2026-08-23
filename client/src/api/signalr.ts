@@ -21,15 +21,27 @@ export async function connect(): Promise<HubConnection> {
   return connection;
 }
 
+/**
+ * Bind this connection to a player in a session.
+ *
+ * `playerId` is public (every teammate sees it), so the server will not
+ * accept it as proof of who we are. `sessionToken` is the secret the server
+ * minted for this seat and handed back from CreateRoom / JoinRoomByCode; it
+ * travels in the invocation body, never in the URL or a query string, and
+ * must never be logged. A wrong or missing token comes back as a generic
+ * "JoinRejected" HubException.
+ */
 export async function joinSession(
   connection: HubConnection,
   sessionId: string,
   playerId: string,
+  sessionToken: string,
 ): Promise<GameStateSnapshotDto> {
   return connection.invoke<GameStateSnapshotDto>(
     "JoinSession",
     sessionId,
     playerId,
+    sessionToken,
   );
 }
 

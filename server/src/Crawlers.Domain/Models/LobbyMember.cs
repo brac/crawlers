@@ -15,4 +15,17 @@ public class LobbyMember
 
     public string ConnectionId { get; set; } = string.Empty;
     public DateTimeOffset JoinedAt { get; init; }
+
+    /// <summary>
+    /// Secret, server-minted token for this lobby seat. Handed back to the
+    /// joining connection alone and carried into the session when the host
+    /// starts, where it becomes the credential that binds a /game connection
+    /// to this player.
+    ///
+    /// SECURITY: this is a bearer credential. It must never be mapped into
+    /// <c>LobbyMemberDto</c> or any other payload that reaches more than one
+    /// client, and it must never be logged. <see cref="PlayerId"/> is public
+    /// information; this is not.
+    /// </summary>
+    public string SessionToken { get; init; } = string.Empty;
 }

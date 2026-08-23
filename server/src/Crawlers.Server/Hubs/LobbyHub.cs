@@ -2,6 +2,7 @@ using Crawlers.Domain.Enums;
 using Crawlers.Server.Contracts;
 using Crawlers.Server.Lobbies;
 using Crawlers.Server.Persistence;
+using Crawlers.Server.Security;
 using Crawlers.Server.Sessions;
 using Microsoft.AspNetCore.SignalR;
 
@@ -37,6 +38,13 @@ public class LobbyHub : Hub<ILobbyClient>
     /// the (id, name) pair on the connection so subsequent CreateRoom /
     /// JoinRoomByCode use them. Calling Identify a second time renames the
     /// player — UUID is sticky, name is editable.
+    ///
+    /// This is an assertion, not authentication: the client picks the id it
+    /// sends, so anyone can claim to be anyone here. That is why nothing
+    /// security-relevant hangs off the asserted id. Control of a character in
+    /// a running session is gated on the per-seat SessionToken minted at
+    /// CreateRoom / JoinRoomByCode, which the server generates and the client
+    /// can neither choose nor predict.
     /// </summary>
     public async Task Identify(Guid playerId, string username)
     {
@@ -66,13 +74,20 @@ public class LobbyHub : Hub<ILobbyClient>
         await Groups.AddToGroupAsync(Context.ConnectionId, GroupName(state.Room.Id));
 
         LobbyDto dto;
-        lock (state.SyncRoot) dto = LobbyMapper.ToDto(state);
+        string token;
+        lock (state.SyncRoot)
+        {
+            dto = LobbyMapper.ToDto(state);
+            token = TokenFor(state, playerId);
+        }
 
         _logger.LogInformation(
             "Player {PlayerId} ('{Username}') created lobby {LobbyId} (code {Code})",
             playerId, username, state.Room.Id, state.Room.Code);
 
-        return new LobbyMembershipDto(playerId, dto);
+        // The token rides home in the invocation result, which reaches only
+        // this connection. Never log it and never add it to `dto`.
+        return new LobbyMembershipDto(playerId, token, dto);
     }
 
     public async Task<LobbyMembershipDto> JoinRoomByCode(string code)
@@ -88,20 +103,39 @@ public class LobbyHub : Hub<ILobbyClient>
         var existing = _lobbies.GetByCode(code);
         if (existing is { Room: { Status: LobbyStatus.InGame, SessionId: { } sessionId } })
         {
+            var lateToken = SessionTokens.Mint();
             var startState = new PlayerStartState
             {
                 PlayerId = playerId,
                 Username = username,
+                SessionToken = lateToken,
                 Stats = SessionManager.DefaultPlayerStats(),
                 Inventory = SessionManager.DefaultStartingInventory()
             };
-            var newPlayer = _sessions.AddPlayerToSession(sessionId, startState);
+            var newPlayer = _sessions.AddPlayerToSession(sessionId, startState, out var alreadySeated);
             if (newPlayer is null)
             {
                 _logger.LogInformation(
                     "Player {PlayerId} late-join failed: session {SessionId} not found",
                     playerId, sessionId);
                 throw new HubException("NotFound");
+            }
+            if (alreadySeated)
+            {
+                // That player id already holds a seat in the running session,
+                // and whoever claimed it holds its token. Handing this caller
+                // a token for a character they did not create is exactly the
+                // hijack the token exists to stop, so re-entry by player id is
+                // refused. Identify() lets a client assert any player id it
+                // likes, so "they said they are that player" proves nothing.
+                //
+                // Cost: a player who loses their in-memory token (closed the
+                // tab) cannot code-join back into their own run. Their
+                // character stays in the session and simply goes unpiloted.
+                _logger.LogInformation(
+                    "Player {PlayerId} late-join refused: id already seated in session {SessionId}",
+                    playerId, sessionId);
+                throw new HubException("AlreadyInSession");
             }
 
             LobbyDto lateDto;
@@ -111,7 +145,7 @@ public class LobbyHub : Hub<ILobbyClient>
                 "Player {PlayerId} ('{Username}') late-joined session {SessionId} via lobby {LobbyId} (code {Code})",
                 playerId, username, sessionId, existing.Room.Id, existing.Room.Code);
 
-            return new LobbyMembershipDto(playerId, lateDto);
+            return new LobbyMembershipDto(playerId, lateToken, lateDto);
         }
 
         var outcome = _lobbies.JoinByCode(code, playerId, username, Context.ConnectionId);
@@ -128,15 +162,22 @@ public class LobbyHub : Hub<ILobbyClient>
         await Groups.AddToGroupAsync(Context.ConnectionId, GroupName(state.Room.Id));
 
         LobbyDto dto;
-        lock (state.SyncRoot) dto = LobbyMapper.ToDto(state);
+        string token;
+        lock (state.SyncRoot)
+        {
+            dto = LobbyMapper.ToDto(state);
+            token = TokenFor(state, playerId);
+        }
 
+        // `dto` fans out to the whole room. It carries player ids and names
+        // and nothing secret; the token below goes only to this caller.
         await Clients.Group(GroupName(state.Room.Id)).ReceiveLobbyUpdate(dto);
 
         _logger.LogInformation(
             "Player {PlayerId} ('{Username}') joined lobby {LobbyId} (code {Code}, {Members} members)",
             playerId, username, state.Room.Id, state.Room.Code, dto.Members.Count);
 
-        return new LobbyMembershipDto(playerId, dto);
+        return new LobbyMembershipDto(playerId, token, dto);
     }
 
     public async Task StartGame()
@@ -151,9 +192,13 @@ public class LobbyHub : Hub<ILobbyClient>
             throw new HubException(outcome.Result.ToString());
 
         // Build per-player start states from the lobby roster and create the
-        // multi-player session. The PlayerIds carry over from the lobby so
-        // each client can authenticate itself to the game hub by replaying
-        // the same id it learned during lobby join.
+        // multi-player session. The PlayerIds carry over from the lobby so the
+        // session addresses the same people the lobby did, but an id is not
+        // proof of anything: every client in the room already knows every
+        // other member's id. What actually authenticates a client to the game
+        // hub is the per-seat SessionToken minted when they joined the lobby
+        // and returned only to them. It carries over here so the token a
+        // client is holding is the token the session will check.
         var lobbyState = outcome.State!;
         List<PlayerStartState> starts;
         lock (lobbyState.SyncRoot)
@@ -163,6 +208,7 @@ public class LobbyHub : Hub<ILobbyClient>
                 {
                     PlayerId = m.PlayerId,
                     Username = m.Username,
+                    SessionToken = m.SessionToken,
                     Stats = SessionManager.DefaultPlayerStats(),
                     Inventory = SessionManager.DefaultStartingInventory()
                 })
@@ -213,6 +259,19 @@ public class LobbyHub : Hub<ILobbyClient>
         _logger.LogInformation(
             "Player {PlayerId} left lobby {LobbyId} (result {Result})",
             playerId, lobbyId, outcome.Result);
+    }
+
+    /// <summary>
+    /// Read the caller's own seat token out of the lobby roster. Caller holds
+    /// the lobby's SyncRoot. Throws if the caller somehow is not a member,
+    /// which would be a bug rather than an attack (both call sites just added
+    /// them).
+    /// </summary>
+    private static string TokenFor(LobbyState state, Guid playerId)
+    {
+        var member = state.Room.Members.FirstOrDefault(m => m.PlayerId == playerId)
+            ?? throw new HubException("NotInLobby");
+        return member.SessionToken;
     }
 
     private (Guid PlayerId, string Username) RequireIdentity()

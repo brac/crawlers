@@ -364,5 +364,16 @@ export interface LobbyDto {
 
 export interface LobbyMembershipDto {
   localPlayerId: string;
+  /**
+   * Secret, server-minted credential for this player's seat. Required by
+   * GameHub.JoinSession to bind a /game connection to this player.
+   *
+   * This is the return value of a hub invocation, so it arrives on this
+   * connection only. It is never present in LobbyDto (which fans out to
+   * every member of the room) or in any game snapshot. Keep it that way:
+   * do not log it, do not put it in a URL or query string, and do not pass
+   * it to any component that renders it.
+   */
+  sessionToken: string;
   lobby: LobbyDto;
 }
