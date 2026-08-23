@@ -1,73 +1,46 @@
-# React + TypeScript + Vite
+# Crawlers client
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The browser client for [Crawlers](../README.md). React 19 + TypeScript, Pixi.js v8 for
+the dungeon canvas, `@microsoft/signalr` for the realtime link, bundled by Vite.
 
-Currently, two official plugins are available:
+The client is a renderer, not a simulation. It sends intents over SignalR and draws
+the snapshots the server broadcasts back. See the "Architecture rules" section of the
+[root README](../README.md) for exactly where that boundary sits.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Running it
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```sh
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Then open `http://localhost:5173`. The dev server needs the game server reachable on
+`http://localhost:5238`; start it with `docker compose up --build` from the repo root,
+or `dotnet run --project server/src/Crawlers.Server --launch-profile http`.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+`vite.config.ts` binds on `0.0.0.0` and proxies `/game`, `/lobby`, and `/api` to that
+server, so the Vite port is the only one that has to be reachable from another device.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Scripts
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Vite dev server with HMR on port 5173 |
+| `npm run build` | `tsc -b` typecheck, then a production bundle into `dist/` |
+| `npm run lint` | ESLint over the whole package |
+| `npm run preview` | Serve the built `dist/` locally |
+
+## Layout
+
 ```
+src/
+├── api/       SignalR wiring and TypeScript mirrors of the server DTOs
+├── game/      Pixi renderer, asset loader, tile palette
+├── ui/        HUD, combat log, inventory, lobby, mobile controls, overlays
+├── dev/       SpriteProbe, an atlas inspector reachable at ?probe=sprites
+├── identity.ts  localStorage player UUID + username
+├── App.tsx    asset preload, identity, lobby phase machine
+└── Game.tsx   /game connection, key handling, snapshot to render
+```
+
+Sprite coordinates live in `public/assets/dungeon/assets.json`, never hardcoded in TS.

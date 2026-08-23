@@ -2,9 +2,11 @@
 
 ## What This Is
 
-The plan to give enemies basic spatial awareness and hunting behavior. Currently enemies are placed and remain static until the player walks into engagement range — combat is entirely "player-initiates" because the only thing that triggers `EngagementService.FindEngagement` is a successful player move. After this phase, enemies that can see a player will pursue them on a slow tick, creating natural chase dynamics, forcing the player to think about kiting and engagement timing, and making the dungeon feel like the enemies want to do something to you instead of just standing around politely.
+> **Status: shipped.** This is the phase plan, kept for the design rationale. It is written in the future tense of its planning session. The build landed as `Crawlers.Generation/Pathfinding/Bfs.cs` plus `Crawlers.Server/Logic/EnemyAi.cs`, `EnemyMovement.cs`, and `EnemyAiRunner.cs`, and it diverges from the plan in two places: the give-up grace shipped at 25 ticks rather than 3, and the per-enemy path cache in Tech Notes was never built (each tick recomputes the next step, and `Entity` carries only `LastSeenPlayerTile` and `GiveUpTicksRemaining`). Step 8's single tunables file was also skipped; the knobs live as `EnemyAiRunner.TickIntervalMs` and `EnemyAi.GiveUpGrace`.
 
-Belongs as a separate phase from `CONTENT_AND_DEPTH.md` because it's a real gameplay shift (the dungeon changes feel), not a content addition.
+The plan to give enemies basic spatial awareness and hunting behavior. Before this phase, enemies were placed and remained static until the player walked into engagement range — combat is entirely "player-initiates" because the only thing that triggers `EngagementService.FindEngagement` is a successful player move. After this phase, enemies that can see a player will pursue them on a slow tick, creating natural chase dynamics, forcing the player to think about kiting and engagement timing, and making the dungeon feel like the enemies want to do something to you instead of just standing around politely.
+
+Belongs as a separate phase from the content-and-depth work because it's a real gameplay shift (the dungeon changes feel), not a content addition.
 
 ---
 
@@ -31,7 +33,7 @@ These were decided in the planning phase. Don't deviate without revisiting.
 | Tick rate | ~700ms (slower than combat's 900ms — chases feel deliberate, not frantic)                                                                                      |
 | Path search | BFS on the tile grid, capped at `sightRadius + 2` cells from origin                                                                                            |
 | Recompute | Only when target tile differs from the cached one OR the cached next-step is now blocked                                                                       |
-| Loss of sight | Enemy keeps walking toward last-seen tile for 3 ticks (~2 seconds), then stops                                                                                 |
+| Loss of sight | Enemy keeps walking toward last-seen tile for `GiveUpGrace` ticks, then stops (shipped at 25)                                                                                 |
 | Idle | Stationary. No random wander.                                                                                                                                  |
 | Engagement | When the AI move lands an enemy at Chebyshev ≤ 1 of a player, fire the same `EngagementService.Engage` the player-move path uses                               |
 | Combat | Enemies currently in combat skip AI ticks — `CombatRunner` owns their behavior                                                                                 |
@@ -107,7 +109,7 @@ Strictly sequential. Each step ships independently and improves the game on its 
 
 ### Step 7 — Tests
 - Chase: enemy at distance 4 spots player, paths over 4 ticks, lands adjacent, combat fires
-- LOS lost mid-chase: enemy continues toward last-seen tile for 3 ticks, then stops
+- LOS lost mid-chase: enemy continues toward last-seen tile for `GiveUpGrace` ticks, then stops
 - Two enemies converging: same target tile resolved by stable order, no overlap
 - Boss room-bound: BigSlug doesn't leave its room even with the door open
 - Mimic-chest unopened: skipped by AI iteration
@@ -150,7 +152,7 @@ A future status effect like "Stun" could short-circuit `TakeTurn` before pathing
 AI ticks skip floors with no live players. Floors that the party left behind go cold until someone returns.
 
 ### Performance falls off a cliff
-Bound the BFS at `sightRadius + 1`. Cache paths. Skip floors. If ever a problem at scale, an A* with manhattan-distance heuristic is a drop-in replacement.
+Bound the BFS at `sightRadius + 2`. Cache paths. Skip floors. If ever a problem at scale, an A* with manhattan-distance heuristic is a drop-in replacement.
 
 ---
 
